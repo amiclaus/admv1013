@@ -224,25 +224,25 @@ static ssize_t admv1013_store(struct device *device,
 		return ret;
 
 	switch ((u32)this_attr->address) {
-	case IF_AMP_COARSE_GAIN_I:
-		reg = ADMV1013_REG_IF_AMP;
-		mask = ADMV1013_IF_AMP_COARSE_GAIN_I_MSK;
-		val = ADMV1013_IF_AMP_COARSE_GAIN_I(val);
+	case MIXER_OFF_ADJ_I_P:
+		reg = ADMV1013_REG_OFFSET_ADJUST_I;
+		mask = ADMV1013_MIXER_OFF_ADJ_I_P_MSK;
+		val = ADMV1013_MIXER_OFF_ADJ_I_P(val);
 		break;
-	case IF_AMP_COARSE_GAIN_Q:
-		reg = ADMV1013_REG_IF_AMP_BB_AMP;
-		mask = ADMV1013_IF_AMP_COARSE_GAIN_Q_MSK;
-		val = ADMV1013_IF_AMP_COARSE_GAIN_Q(val);
+	case MIXER_OFF_ADJ_I_N:
+		reg = ADMV1013_REG_OFFSET_ADJUST_I;
+		mask = ADMV1013_MIXER_OFF_ADJ_I_N_MSK;
+		val = ADMV1013_MIXER_OFF_ADJ_I_N(val);
 		break;
-	case IF_AMP_FINE_GAIN_I:
-		reg = ADMV1013_REG_IF_AMP;
-		mask = ADMV1013_IF_AMP_FINE_GAIN_I_MSK;
-		val = ADMV1013_IF_AMP_FINE_GAIN_I(val);
+	case MIXER_OFF_ADJ_Q_P:
+		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
+		mask = ADMV1013_MIXER_OFF_ADJ_Q_P_MSK;
+		val = ADMV1013_MIXER_OFF_ADJ_Q_P(val);
 		break;
-	case IF_AMP_FINE_GAIN_Q:
-		reg = ADMV1013_REG_IF_AMP;
-		mask = ADMV1013_IF_AMP_FINE_GAIN_Q_MSK;
-		val = ADMV1013_IF_AMP_FINE_GAIN_Q(val);
+	case MIXER_OFF_ADJ_Q_N:
+		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
+		mask = ADMV1013_MIXER_OFF_ADJ_Q_N_MSK;
+		val = ADMV1013_MIXER_OFF_ADJ_Q_N(val);
 		break;
 	case LOAMP_PH_ADJ_I_FINE:
 		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
@@ -276,34 +276,35 @@ static ssize_t admv1013_show(struct device *device,
 	u8 reg = 0;
 
 	switch ((u32)this_attr->address) {
-	case IF_AMP_COARSE_GAIN_I:
-		reg = ADMV1013_REG_IF_AMP;
-		mask = ADMV1013_IF_AMP_COARSE_GAIN_I_MSK;
-		data_shift = 8;
+	case MIXER_OFF_ADJ_I_P:
+		reg = ADMV1013_REG_OFFSET_ADJUST_I;
+		mask = ADMV1013_MIXER_OFF_ADJ_I_P_MSK;
+		data_shift = 9;
 		break;
-	case IF_AMP_COARSE_GAIN_Q:
-		reg = ADMV1013_REG_IF_AMP_BB_AMP;
-		mask = ADMV1013_IF_AMP_COARSE_GAIN_Q_MSK;
-		data_shift = 12;
+	case MIXER_OFF_ADJ_I_N:
+		reg = ADMV1013_REG_OFFSET_ADJUST_I;
+		mask = ADMV1013_MIXER_OFF_ADJ_I_N_MSK;
+		data_shift = 2;
 		break;
-	case IF_AMP_FINE_GAIN_I:
-		reg = ADMV1013_REG_IF_AMP;
-		mask = ADMV1013_IF_AMP_FINE_GAIN_I_MSK;
-		data_shift = 4;
+	case MIXER_OFF_ADJ_Q_P:
+		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
+		mask = ADMV1013_MIXER_OFF_ADJ_Q_P_MSK;
+		data_shift = 9;
 		break;
-	case IF_AMP_FINE_GAIN_Q:
-		reg = ADMV1013_REG_IF_AMP;
-		mask = ADMV1013_IF_AMP_FINE_GAIN_Q_MSK;
+	case MIXER_OFF_ADJ_Q_N:
+		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
+		mask = ADMV1013_MIXER_OFF_ADJ_Q_N_MSK;
+		data_shift = 2;
 		break;
 	case LOAMP_PH_ADJ_I_FINE:
 		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK;
-		data_shift = 9;
+		data_shift = 7;
 		break;
 	case LOAMP_PH_ADJ_Q_FINE:
 		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK;
-		data_shift = 2;
+		data_shift = 7;
 		break;
 	default:
 		return -EINVAL;
@@ -318,25 +319,25 @@ static ssize_t admv1013_show(struct device *device,
 	return sprintf(buf, "%d\n", val);
 }
 
-static IIO_DEVICE_ATTR(if_amp_coarse_gain_i, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_i_p, S_IRUGO | S_IWUSR,
 		       admv1013_show,
 		       admv1013_store,
-		       IF_AMP_COARSE_GAIN_I);
+		       MIXER_OFF_ADJ_I_P);
 
-static IIO_DEVICE_ATTR(if_amp_coarse_gain_q, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_i_n, S_IRUGO | S_IWUSR,
 		       admv1013_show,
 		       admv1013_store,
-		       IF_AMP_COARSE_GAIN_Q);
+		       MIXER_OFF_ADJ_I_N);
 
-static IIO_DEVICE_ATTR(if_amp_fine_gain_i, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_q_p, S_IRUGO | S_IWUSR,
 		       admv1013_show,
 		       admv1013_store,
-		       IF_AMP_FINE_GAIN_I);
+		       MIXER_OFF_ADJ_Q_P);
 
-static IIO_DEVICE_ATTR(if_amp_fine_gain_q, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_q_n, S_IRUGO | S_IWUSR,
 		       admv1013_show,
 		       admv1013_store,
-		       IF_AMP_FINE_GAIN_Q);
+		       MIXER_OFF_ADJ_Q_N);
 
 static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, S_IRUGO | S_IWUSR,
 		       admv1013_show,
@@ -348,12 +349,11 @@ static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
 		       admv1013_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
-
 static struct attribute *admv1013_attributes[] = {
-	&iio_dev_attr_if_amp_coarse_gain_i.dev_attr.attr,
-	&iio_dev_attr_if_amp_coarse_gain_q.dev_attr.attr,
-	&iio_dev_attr_if_amp_fine_gain_i.dev_attr.attr,
-	&iio_dev_attr_if_amp_fine_gain_q.dev_attr.attr,
+	&iio_dev_attr_mixer_off_adj_i_p.dev_attr.attr,
+	&iio_dev_attr_mixer_off_adj_i_n.dev_attr.attr,
+	&iio_dev_attr_mixer_off_adj_q_p.dev_attr.attr,
+	&iio_dev_attr_mixer_off_adj_q_n.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
 	NULL
@@ -411,7 +411,7 @@ static int admv1013_init(struct admv1013_dev *dev)
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_write(dev->regmap, ADMV1013_REG_VVA_TEMP_COMP, 0x727C);
+	ret = regmap_write(dev->regmap, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
 	if (ret < 0)
 		return ret;
 

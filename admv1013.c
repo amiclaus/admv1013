@@ -127,85 +127,105 @@ static void check_parity(u32 input, u32 *count)
 	*count = i;
 }
 
-static int admv1013_regmap_spi_read(void *context,
-				  const void *reg, size_t reg_size,
-				  void *val, size_t val_size)
+static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
+			      unsigned int *val)
 {
-	struct device *dev = context;
-	struct spi_device *spi = to_spi_device(dev);
-	u8 result[ADMV1013_SPI_READ_BUFFER_SIZE];
+	int ret;
+	unsigned int cnt, p_bit, data;
 
-	if (val_size > ADMV1013_MAX_SPI_READ)
-		return -EINVAL;
+	ret = regmap_read(dev->regmap, reg, &data);
+	if (ret < 0)
+		return ret;
 
-	return spi_write_then_read(spi, reg, 1, result, val_size + 1);
-	// TODO: Bit shifting and parity check
-}
-
-static int admv1013_regmap_spi_write(void *context, const void *data,
-				   size_t count)
-{
-	struct device *device = context;
-	struct spi_device *spi = to_spi_device(device);
-	struct iio_dev *indio_dev = dev_to_iio_dev(device);
-	struct admv1013_dev *dev = iio_priv(indio_dev);
-	u32 cnt, *buf;
-
-	buf = data;
-	*buf <<= 1;
+	data = (reg << 17) | data;
 
 	if (dev->parity_en)
 	{
-		check_parity(*buf, &cnt);
+		check_parity(data, &cnt);
+		p_bit = data & 0x1;
 
-		if (cnt % 2 == 0)
-			*buf |= 0x1;
+		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
+			return -EINVAL;
 	}
 
-	return spi_write(spi, buf, count);
+	*val = (data >> 1) & 0xFF;
+
+	return ret;
 }
 
-static int admv1013_regmap_spi_update_bits(void *context, unsigned int reg,
+static int admv1013_spi_write(struct admv1013_dev *dev,
+				      unsigned int reg,
+				      unsigned int val)
+{
+	unsigned int cnt;
+
+	val = (val << 1);
+
+	if (dev->parity_en)
+	{
+		check_parity(val, &cnt);
+
+		if (cnt % 2 == 0)
+			val |= 0x1;
+	}
+
+	return regmap_write(dev->regmap, reg, val);
+}
+
+static int admv1013_spi_update_bits(struct admv1013_dev *dev, unsigned int reg,
 			       unsigned int mask, unsigned int val)
 {
-	struct device *device = context;
-	struct iio_dev *indio_dev = dev_to_iio_dev(device);
-	struct admv1013_dev *dev = iio_priv(indio_dev);
-	u32 data, temp;
-	int status;
+	int ret;
+	unsigned int data, temp;
 
-	status = regmap_read(dev->regmap, reg, &data);
-	if (status < 0)
-		return status;
+	ret = admv1013_spi_read(dev, reg, &data);
+	if (ret < 0)
+		return ret;
 
 	temp = data & ~mask;
 	temp |= val & mask;
 
-	return regmap_write(dev->regmap, reg, temp);
+	return admv1013_spi_write(dev, reg, temp);
+}
+
+static int admv1013_update_quad_filters(struct admv1013_dev *dev)
+{
+	unsigned int filt_raw;
+
+	if (dev->clkin_freq <= 6600000000 && dev->clkin_freq <= 9200000000)
+		filt_raw = 5;
+	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 8000000000)
+		filt_raw = 10;
+	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 7000000000)
+		filt_raw = 15;
+	else
+		filt_raw = 0;
+
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
+					ADMV1013_QUAD_FILTERS_MSK,
+					ADMV1013_QUAD_FILTERS(filt_raw));
 }
 
 static const struct regmap_config admv1013_regmap_config = {
-	.reg_bits = 8,
-	.val_bits = 16,
+	.reg_bits = 7,
+	.val_bits = 17,
 	.read_flag_mask = BIT(7),
 	.max_register = 0x0B,
 };
 
-static struct regmap_bus admv1013_regmap_bus = {
-	.read = admv1013_regmap_spi_read,
-	.write = admv1013_regmap_spi_write,
-	.reg_update_bits = admv1013_regmap_spi_update_bits,
-	.read_flag_mask = BIT(7),
-	.max_raw_read = ADMV1013_MAX_SPI_READ,
-};
-
 enum admv1013_iio_dev_attr {
-	IF_AMP_COARSE_GAIN_I,
-	IF_AMP_COARSE_GAIN_Q,
-	IF_AMP_FINE_GAIN_I,
-	IF_AMP_FINE_GAIN_Q,
+	MIXER_OFF_ADJ_I_P,
+	MIXER_OFF_ADJ_I_N,
+	MIXER_OFF_ADJ_Q_P,
+	MIXER_OFF_ADJ_Q_N,
 	LOAMP_PH_ADJ_I_FINE,
 	LOAMP_PH_ADJ_Q_FINE,
+	VGA_PD,
+	MIXER_PD,
+	QUAD_PD,
+	BG_PD,
+	MIXER_IF_EN,
+	DET_EN
 };
 
 static ssize_t admv1013_store(struct device *device,
@@ -245,20 +265,53 @@ static ssize_t admv1013_store(struct device *device,
 		val = ADMV1013_MIXER_OFF_ADJ_Q_N(val);
 		break;
 	case LOAMP_PH_ADJ_I_FINE:
-		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
+		reg = ADMV1013_REG_LO_AMP_I;
 		mask = ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK;
 		val = ADMV1013_LOAMP_PH_ADJ_I_FINE(val);
 		break;
 	case LOAMP_PH_ADJ_Q_FINE:
-		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
+		reg = ADMV1013_REG_LO_AMP_Q;
 		mask = ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK;
 		val = ADMV1013_LOAMP_PH_ADJ_Q_FINE(val);
+		break;
+	case VGA_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_VGA_PD_MSK;
+		val = ADMV1013_VGA_PD(val);
+		break;
+	case MIXER_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_MIXER_PD_MSK;
+		val = ADMV1013_MIXER_PD(val);
+		break;
+	case QUAD_PD:
+		if (val != 0x0 || val != 0xf)
+			return -EINVAL;
+
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_QUAD_PD_MSK;
+		val = ADMV1013_QUAD_PD(val);
+		break;
+	case BG_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_BG_PD_MSK;
+		val = ADMV1013_BG_PD(val);
+		break;
+	case MIXER_IF_EN:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_MIXER_IF_EN_MSK;
+		val = ADMV1013_MIXER_IF_EN(val);
+		break;
+	case DET_EN:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_DET_EN_MSK;
+		val = ADMV1013_DET_EN(val);
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	ret = regmap_update_bits(dev->regmap, reg, mask, val);
+	ret = admv1013_spi_update_bits(dev, reg, mask, val);
 
 	return ret ? ret : len;
 }
@@ -297,20 +350,50 @@ static ssize_t admv1013_show(struct device *device,
 		data_shift = 2;
 		break;
 	case LOAMP_PH_ADJ_I_FINE:
-		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
+		reg = ADMV1013_REG_LO_AMP_I;
 		mask = ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK;
 		data_shift = 7;
 		break;
 	case LOAMP_PH_ADJ_Q_FINE:
-		reg = ADMV1013_REG_LO_AMP_PHASE_ADJUST1;
+		reg = ADMV1013_REG_LO_AMP_Q;
 		mask = ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK;
 		data_shift = 7;
+		break;
+	case VGA_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_VGA_PD_MSK;
+		data_shift = 15;
+		break;
+	case MIXER_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_MIXER_PD_MSK;
+		data_shift = 14;
+		break;
+	case QUAD_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_QUAD_PD_MSK;
+		data_shift = 11;
+		break;
+	case BG_PD:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_BG_PD_MSK;
+		data_shift = 10;
+		break;
+	case MIXER_IF_EN:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_MIXER_IF_EN_MSK;
+		data_shift = 7;
+		break;
+	case DET_EN:
+		reg = ADMV1013_REG_ENABLE;
+		mask = ADMV1013_DET_EN_MSK;
+		data_shift = 5;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	ret = regmap_read(dev->regmap, reg, &val);
+	ret = admv1013_spi_read(dev, reg, &val);
 	if (ret < 0)
 		return ret;
 
@@ -349,6 +432,36 @@ static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
 		       admv1013_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
+static IIO_DEVICE_ATTR(vga_pd, S_IRUGO | S_IWUSR,
+		       admv1013_show,
+		       admv1013_store,
+		       VGA_PD);
+
+static IIO_DEVICE_ATTR(mixer_pd, S_IRUGO | S_IWUSR,
+		       admv1013_show,
+		       admv1013_store,
+		       MIXER_PD);
+
+static IIO_DEVICE_ATTR(quad_pd, S_IRUGO | S_IWUSR,
+		       admv1013_show,
+		       admv1013_store,
+		       QUAD_PD);
+
+static IIO_DEVICE_ATTR(bg_pd, S_IRUGO | S_IWUSR,
+		       admv1013_show,
+		       admv1013_store,
+		       BG_PD);
+
+static IIO_DEVICE_ATTR(mixer_if_en, S_IRUGO | S_IWUSR,
+		       admv1013_show,
+		       admv1013_store,
+		       MIXER_IF_EN);
+
+static IIO_DEVICE_ATTR(det_en, S_IRUGO | S_IWUSR,
+		       admv1013_show,
+		       admv1013_store,
+		       DET_EN);
+
 static struct attribute *admv1013_attributes[] = {
 	&iio_dev_attr_mixer_off_adj_i_p.dev_attr.attr,
 	&iio_dev_attr_mixer_off_adj_i_n.dev_attr.attr,
@@ -356,6 +469,12 @@ static struct attribute *admv1013_attributes[] = {
 	&iio_dev_attr_mixer_off_adj_q_n.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
+	&iio_dev_attr_vga_pd.dev_attr.attr,
+	&iio_dev_attr_mixer_pd.dev_attr.attr,
+	&iio_dev_attr_quad_pd.dev_attr.attr,
+	&iio_dev_attr_bg_pd.dev_attr.attr,
+	&iio_dev_attr_mixer_if_en.dev_attr.attr,
+	&iio_dev_attr_det_en.dev_attr.attr,
 	NULL
 };
 
@@ -371,9 +490,9 @@ static int admv1013_reg_access(struct iio_dev *indio_dev,
 	struct admv1013_dev *dev = iio_priv(indio_dev);
 
 	if (read_val)
-		return regmap_read(dev->regmap, reg, read_val);
+		return admv1013_spi_read(dev, reg, read_val);
 	else
-		return regmap_write(dev->regmap, reg, write_val);
+		return admv1013_spi_write(dev, reg, write_val);
 }
 
 static const struct iio_info admv1013_info = {
@@ -385,9 +504,14 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long flags, 
 {
 	struct admv1013_dev *dev = container_of(nb, struct admv1013_dev, nb);
 	struct clk_notifier_data *cnd = data;
+	int ret;
 
 	/* cache the new rate */
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
+
+	ret = admv1013_update_quad_filters(dev);
+	if(ret < 0)
+		return ret;
 
 	return NOTIFY_OK;
 }
@@ -405,23 +529,17 @@ static int admv1013_init(struct admv1013_dev *dev)
 	u32 chip_id;
 
 	/* Perform a software reset */
-	ret = regmap_update_bits(dev->regmap, ADMV1013_REG_SPI_CONTROL,
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
 				 ADMV1013_SPI_SOFT_RESET_MSK,
 				 ADMV1013_SPI_SOFT_RESET(1));
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_write(dev->regmap, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
+	ret = admv1013_spi_write(dev, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_update_bits(dev->regmap, ADMV1013_REG_ENABLE,
-				 ADMV1013_P1DB_COMPENSATION_MSK,
-				 ADMV1013_P1DB_COMPENSATION(3));
-	if (ret < 0)
-		return ret;
-
-	ret = regmap_read(dev->regmap, ADMV1013_REG_SPI_CONTROL, &chip_id);
+	ret = admv1013_spi_read(dev, ADMV1013_REG_SPI_CONTROL, &chip_id);
 	if (ret < 0)
 		return ret;
 
@@ -429,7 +547,7 @@ static int admv1013_init(struct admv1013_dev *dev)
 	if (chip_id != ADMV1013_CHIP_ID)
 		return -EINVAL;
 
-	return regmap_update_bits(dev->regmap, ADMV1013_REG_QUAD,
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 				 ADMV1013_QUAD_SE_MODE_MSK,
 				 ADMV1013_QUAD_SE_MODE(dev->quad_se_mode));
 
@@ -454,8 +572,7 @@ static int admv1013_probe(struct spi_device *spi)
 	if (!indio_dev)
 		return -ENOMEM;
 
-	regmap = devm_regmap_init(&spi->dev, &admv1013_regmap_bus,
-				  &spi->dev, &admv1013_regmap_config);
+	regmap = devm_regmap_init_spi(spi, &admv1013_regmap_config);
 	if (IS_ERR(regmap)) {
 		dev_err(&spi->dev, "invalid regmap");
 		return PTR_ERR(regmap);
@@ -505,11 +622,11 @@ static int admv1013_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	// ret = admv1013_init(dev);
-	// if (ret < 0) {
-	// 	dev_err(&spi->dev, "admv1013 init failed\n");
-	// 	return ret;
-	// }
+	ret = admv1013_init(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "admv1013 init failed\n");
+		return ret;
+	}
 
 	dev_info(&spi->dev, "ADMV1013 PROBED");
 

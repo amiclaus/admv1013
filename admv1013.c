@@ -107,14 +107,19 @@ enum supported_parts {
 struct admv1013_dev {
 	struct spi_device	*spi;
 	struct clk		*clkin;
-	struct clock_scale	*clkscale;
+	struct clock_scale	clkscale;
+	struct mutex		lock;
 	struct regulator	*reg;
 	struct notifier_block	nb;
-	u8			quad_se_mode;
 	u64			clkin_freq;
+	unsigned int		quad_se_mode;
 	bool			parity_en;
-	bool			bus_locked;
-	u8			data[3];
+	bool			vga_pd;
+	bool			mixer_pd;
+	bool			quad_pd;
+	bool			bg_pd;
+	bool			mixer_if_en;
+	bool			det_en;
 };
 
 static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
@@ -124,28 +129,24 @@ static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
 	unsigned int cnt, temp;
 	struct spi_message m;
 	struct spi_transfer t = {0};
+	u8 data[3];
 
-	dev->data[0] = 0x80 | (reg << 1);
-	dev->data[1] = 0x0;
-	dev->data[2] = 0x0;
+	data[0] = 0x80 | (reg << 1);
+	data[1] = 0x0;
+	data[2] = 0x0;
 
-	t.rx_buf = dev->data;
-	t.tx_buf = dev->data;
+	t.rx_buf = &data[0];
+	t.tx_buf = &data[0];
 	t.len = 3;
 
 	spi_message_init_with_transfers(&m, &t, 1);
 
-	if (dev->bus_locked)
-		ret = spi_sync_locked(dev->spi, &m);
-	else
-		ret = spi_sync(dev->spi, &m);
-
+	ret = spi_sync(dev->spi, &m);
 	if (ret < 0)
 		return ret;
 
-	temp = ((dev->data[0] | 0x80 | (reg << 1)) << 16) |
-		(dev->data[1] << 8) |
-		dev->data[2];
+	temp = ((data[0] | 0x80 | (reg << 1)) << 16) |
+		(data[1] << 8) | data[2];
 
 	if (dev->parity_en) {
 		cnt = hweight_long(temp);
@@ -163,8 +164,7 @@ static int admv1013_spi_write(struct admv1013_dev *dev,
 				      unsigned int val)
 {
 	unsigned int cnt;
-	struct spi_message m;
-	struct spi_transfer t = {0};
+	u8 data[3];
 
 	val = (val << 1);
 
@@ -174,20 +174,11 @@ static int admv1013_spi_write(struct admv1013_dev *dev,
 			val |= 0x1;
 	}
 
-	t.tx_buf = dev->data;
-	t.len = 3;
+	data[0] = (reg << 1) | (val >> 16);
+	data[1] = val >> 8;
+	data[2] = val;
 
-	dev->data[0] = (reg << 1) | (val >> 16);
-	dev->data[1] = val >> 8;
-	dev->data[2] = val;
-
-	spi_message_init(&m);
-	spi_message_add_tail(&t, &m);
-
-	if (dev->bus_locked)
-		return spi_sync_locked(dev->spi, &m);
-
-	return spi_sync(dev->spi, &m);
+	return spi_write(dev->spi, &data[0], 3);
 }
 
 static int admv1013_spi_update_bits(struct admv1013_dev *dev, unsigned int reg,
@@ -196,26 +187,125 @@ static int admv1013_spi_update_bits(struct admv1013_dev *dev, unsigned int reg,
 	int ret;
 	unsigned int data, temp;
 
+	mutex_lock(&dev->lock);
 	ret = admv1013_spi_read(dev, reg, &data);
 	if (ret < 0)
+		goto exit;
+
+	temp = (data & ~mask) | (val & mask);
+
+	ret = admv1013_spi_write(dev, reg, temp);
+
+exit:
+	mutex_unlock(&dev->lock);
+
+	return ret;
+}
+
+static int admv1013_read_raw(struct iio_dev *indio_dev,
+			    struct iio_chan_spec const *chan,
+			    int *val, int *val2, long info)
+{
+	struct admv1013_dev *dev = iio_priv(indio_dev);
+	unsigned int data;
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_OFFSET:
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1013_spi_read(dev, ADMV1013_REG_OFFSET_ADJUST_I, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1013_MIXER_OFF_ADJ_I_P_MSK) >> 9;
+			*val2 = (data & ADMV1013_MIXER_OFF_ADJ_I_N_MSK) >> 2;
+		} else {
+			ret = admv1013_spi_read(dev, ADMV1013_REG_OFFSET_ADJUST_Q, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1013_MIXER_OFF_ADJ_Q_P_MSK) >> 9;
+			*val2 = (data & ADMV1013_MIXER_OFF_ADJ_Q_N_MSK) >> 2;
+		}
+
+		return IIO_VAL_INT_MULTIPLE;
+	case IIO_CHAN_INFO_PHASE:
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1013_spi_read(dev, ADMV1013_REG_LO_AMP_I, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK) >> 7;
+		} else {
+			ret = admv1013_spi_read(dev, ADMV1013_REG_LO_AMP_Q, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK) >> 7;
+		}
+
+		return IIO_VAL_INT;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int admv1013_write_raw(struct iio_dev *indio_dev,
+			     struct iio_chan_spec const *chan,
+			     int val, int val2, long info)
+{
+	struct admv1013_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_OFFSET:
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_I,
+							ADMV1013_MIXER_OFF_ADJ_I_P_MSK,
+							ADMV1013_MIXER_OFF_ADJ_I_P(val));
+			if (ret < 0)
+				return ret;
+
+			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_I,
+							ADMV1013_MIXER_OFF_ADJ_I_N_MSK,
+							ADMV1013_MIXER_OFF_ADJ_I_N(val2));
+		} else {
+			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_Q,
+							ADMV1013_MIXER_OFF_ADJ_Q_P_MSK,
+							ADMV1013_MIXER_OFF_ADJ_Q_P(val));
+			if (ret < 0)
+				return ret;
+
+			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_Q,
+							ADMV1013_MIXER_OFF_ADJ_Q_N_MSK,
+							ADMV1013_MIXER_OFF_ADJ_Q_N(val2));
+		}
+
 		return ret;
-
-	temp = data & ~mask;
-	temp |= val & mask;
-
-	return admv1013_spi_write(dev, reg, temp);
+	case IIO_CHAN_INFO_PHASE:
+		if (chan->channel2 == IIO_MOD_I)
+			return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
+							ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK,
+							ADMV1013_LOAMP_PH_ADJ_I_FINE(val));
+		else
+			return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_Q,
+							ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK,
+							ADMV1013_LOAMP_PH_ADJ_Q_FINE(val));
+	default:
+		return -EINVAL;
+	}
 }
 
 static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 {
 	unsigned int filt_raw;
 
-	if (dev->clkin_freq <= 6600000000 && dev->clkin_freq <= 9200000000)
-		filt_raw = 5;
+	if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 7000000000)
+		filt_raw = 15;
 	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 8000000000)
 		filt_raw = 10;
-	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 7000000000)
-		filt_raw = 15;
+	else if (dev->clkin_freq <= 6600000000 && dev->clkin_freq <= 9200000000)
+		filt_raw = 5;
 	else
 		filt_raw = 0;
 
@@ -224,274 +314,21 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 					ADMV1013_QUAD_FILTERS(filt_raw));
 }
 
-enum admv1013_iio_dev_attr {
-	MIXER_OFF_ADJ_I_P,
-	MIXER_OFF_ADJ_I_N,
-	MIXER_OFF_ADJ_Q_P,
-	MIXER_OFF_ADJ_Q_N,
-	LOAMP_PH_ADJ_I_FINE,
-	LOAMP_PH_ADJ_Q_FINE,
-	VGA_PD,
-	MIXER_PD,
-	QUAD_PD,
-	BG_PD,
-	MIXER_IF_EN,
-	DET_EN
-};
-
-static ssize_t admv1013_store(struct device *device,
-			      struct device_attribute *attr,
-			      const char *buf, size_t len)
+static int admv1013_update_mixer_vgate(struct admv1013_dev *dev)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(device);
-	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	struct admv1013_dev *dev = iio_priv(indio_dev);
-	u16 mask = 0, val = 0;
-	u8 reg = 0;
-	int ret = 0;
+	unsigned int vcm, mixer_vgate;
 
-	ret = kstrtou16(buf, 10, &val);
-	if (ret)
-		return ret;
+	vcm = regulator_get_voltage(dev->reg);
 
-	switch ((u32)this_attr->address) {
-	case MIXER_OFF_ADJ_I_P:
-		reg = ADMV1013_REG_OFFSET_ADJUST_I;
-		mask = ADMV1013_MIXER_OFF_ADJ_I_P_MSK;
-		val = ADMV1013_MIXER_OFF_ADJ_I_P(val);
-		break;
-	case MIXER_OFF_ADJ_I_N:
-		reg = ADMV1013_REG_OFFSET_ADJUST_I;
-		mask = ADMV1013_MIXER_OFF_ADJ_I_N_MSK;
-		val = ADMV1013_MIXER_OFF_ADJ_I_N(val);
-		break;
-	case MIXER_OFF_ADJ_Q_P:
-		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
-		mask = ADMV1013_MIXER_OFF_ADJ_Q_P_MSK;
-		val = ADMV1013_MIXER_OFF_ADJ_Q_P(val);
-		break;
-	case MIXER_OFF_ADJ_Q_N:
-		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
-		mask = ADMV1013_MIXER_OFF_ADJ_Q_N_MSK;
-		val = ADMV1013_MIXER_OFF_ADJ_Q_N(val);
-		break;
-	case LOAMP_PH_ADJ_I_FINE:
-		reg = ADMV1013_REG_LO_AMP_I;
-		mask = ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK;
-		val = ADMV1013_LOAMP_PH_ADJ_I_FINE(val);
-		break;
-	case LOAMP_PH_ADJ_Q_FINE:
-		reg = ADMV1013_REG_LO_AMP_Q;
-		mask = ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK;
-		val = ADMV1013_LOAMP_PH_ADJ_Q_FINE(val);
-		break;
-	case VGA_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_VGA_PD_MSK;
-		val = ADMV1013_VGA_PD(val);
-		break;
-	case MIXER_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_MIXER_PD_MSK;
-		val = ADMV1013_MIXER_PD(val);
-		break;
-	case QUAD_PD:
-		if (val != 0x0 || val != 0xf)
-			return -EINVAL;
+	if (vcm >= 0 && vcm < 1800000)
+		mixer_vgate = (2389 * vcm / 1000000 + 8100) / 100;
+	else if (vcm > 1800000 && vcm < 2600000)
+		mixer_vgate = (2375 * vcm / 1000000 + 125) / 100;
 
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_QUAD_PD_MSK;
-		val = ADMV1013_QUAD_PD(val);
-		break;
-	case BG_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_BG_PD_MSK;
-		val = ADMV1013_BG_PD(val);
-		break;
-	case MIXER_IF_EN:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_MIXER_IF_EN_MSK;
-		val = ADMV1013_MIXER_IF_EN(val);
-		break;
-	case DET_EN:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_DET_EN_MSK;
-		val = ADMV1013_DET_EN(val);
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	ret = admv1013_spi_update_bits(dev, reg, mask, val);
-
-	return ret ? ret : len;
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
+				 ADMV1013_MIXER_VGATE_MSK,
+				 ADMV1013_MIXER_VGATE(mixer_vgate));
 }
-
-static ssize_t admv1013_show(struct device *device,
-			struct device_attribute *attr,
-			char *buf)
-{
-	struct iio_dev *indio_dev = dev_to_iio_dev(device);
-	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
-	struct admv1013_dev *dev = iio_priv(indio_dev);
-	int ret = 0;
-	u16 mask = 0, data_shift = 0;
-	u32 val = 0;
-	u8 reg = 0;
-
-	switch ((u32)this_attr->address) {
-	case MIXER_OFF_ADJ_I_P:
-		reg = ADMV1013_REG_OFFSET_ADJUST_I;
-		mask = ADMV1013_MIXER_OFF_ADJ_I_P_MSK;
-		data_shift = 9;
-		break;
-	case MIXER_OFF_ADJ_I_N:
-		reg = ADMV1013_REG_OFFSET_ADJUST_I;
-		mask = ADMV1013_MIXER_OFF_ADJ_I_N_MSK;
-		data_shift = 2;
-		break;
-	case MIXER_OFF_ADJ_Q_P:
-		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
-		mask = ADMV1013_MIXER_OFF_ADJ_Q_P_MSK;
-		data_shift = 9;
-		break;
-	case MIXER_OFF_ADJ_Q_N:
-		reg = ADMV1013_REG_OFFSET_ADJUST_Q;
-		mask = ADMV1013_MIXER_OFF_ADJ_Q_N_MSK;
-		data_shift = 2;
-		break;
-	case LOAMP_PH_ADJ_I_FINE:
-		reg = ADMV1013_REG_LO_AMP_I;
-		mask = ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK;
-		data_shift = 7;
-		break;
-	case LOAMP_PH_ADJ_Q_FINE:
-		reg = ADMV1013_REG_LO_AMP_Q;
-		mask = ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK;
-		data_shift = 7;
-		break;
-	case VGA_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_VGA_PD_MSK;
-		data_shift = 15;
-		break;
-	case MIXER_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_MIXER_PD_MSK;
-		data_shift = 14;
-		break;
-	case QUAD_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_QUAD_PD_MSK;
-		data_shift = 11;
-		break;
-	case BG_PD:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_BG_PD_MSK;
-		data_shift = 10;
-		break;
-	case MIXER_IF_EN:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_MIXER_IF_EN_MSK;
-		data_shift = 7;
-		break;
-	case DET_EN:
-		reg = ADMV1013_REG_ENABLE;
-		mask = ADMV1013_DET_EN_MSK;
-		data_shift = 5;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	ret = admv1013_spi_read(dev, reg, &val);
-	if (ret < 0)
-		return ret;
-
-	val = (val & mask) >> data_shift;
-
-	return sprintf(buf, "%d\n", val);
-}
-
-static IIO_DEVICE_ATTR(mixer_off_adj_i_p, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       MIXER_OFF_ADJ_I_P);
-
-static IIO_DEVICE_ATTR(mixer_off_adj_i_n, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       MIXER_OFF_ADJ_I_N);
-
-static IIO_DEVICE_ATTR(mixer_off_adj_q_p, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       MIXER_OFF_ADJ_Q_P);
-
-static IIO_DEVICE_ATTR(mixer_off_adj_q_n, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       MIXER_OFF_ADJ_Q_N);
-
-static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       LOAMP_PH_ADJ_I_FINE);
-
-static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       LOAMP_PH_ADJ_Q_FINE);
-
-static IIO_DEVICE_ATTR(vga_pd, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       VGA_PD);
-
-static IIO_DEVICE_ATTR(mixer_pd, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       MIXER_PD);
-
-static IIO_DEVICE_ATTR(quad_pd, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       QUAD_PD);
-
-static IIO_DEVICE_ATTR(bg_pd, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       BG_PD);
-
-static IIO_DEVICE_ATTR(mixer_if_en, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       MIXER_IF_EN);
-
-static IIO_DEVICE_ATTR(det_en, 0644,
-		       admv1013_show,
-		       admv1013_store,
-		       DET_EN);
-
-static struct attribute *admv1013_attributes[] = {
-	&iio_dev_attr_mixer_off_adj_i_p.dev_attr.attr,
-	&iio_dev_attr_mixer_off_adj_i_n.dev_attr.attr,
-	&iio_dev_attr_mixer_off_adj_q_p.dev_attr.attr,
-	&iio_dev_attr_mixer_off_adj_q_n.dev_attr.attr,
-	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
-	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
-	&iio_dev_attr_vga_pd.dev_attr.attr,
-	&iio_dev_attr_mixer_pd.dev_attr.attr,
-	&iio_dev_attr_quad_pd.dev_attr.attr,
-	&iio_dev_attr_bg_pd.dev_attr.attr,
-	&iio_dev_attr_mixer_if_en.dev_attr.attr,
-	&iio_dev_attr_det_en.dev_attr.attr,
-	NULL
-};
-
-static const struct attribute_group admv1013_attribute_group = {
-	.attrs = admv1013_attributes,
-};
 
 static int admv1013_reg_access(struct iio_dev *indio_dev,
 				unsigned int reg,
@@ -501,41 +338,29 @@ static int admv1013_reg_access(struct iio_dev *indio_dev,
 	struct admv1013_dev *dev = iio_priv(indio_dev);
 	int ret;
 
-	mutex_lock(&indio_dev->mlock);
-	spi_bus_lock(dev->spi->master);
-	dev->bus_locked = true;
-
 	if (read_val)
 		ret = admv1013_spi_read(dev, reg, read_val);
 	else
 		ret = admv1013_spi_write(dev, reg, write_val);
 
-	dev->bus_locked = false;
-	spi_bus_unlock(dev->spi->master);
-	mutex_unlock(&indio_dev->mlock);
-
 	return ret;
 }
 
 static const struct iio_info admv1013_info = {
+	.read_raw = admv1013_read_raw,
+	.write_raw = admv1013_write_raw,
 	.debugfs_reg_access = &admv1013_reg_access,
-	.attrs = &admv1013_attribute_group,
 };
 
 static int admv1013_freq_change(struct notifier_block *nb, unsigned long flags, void *data)
 {
 	struct admv1013_dev *dev = container_of(nb, struct admv1013_dev, nb);
 	struct clk_notifier_data *cnd = data;
-	int ret;
 
 	/* cache the new rate */
-	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
+	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, &dev->clkscale);
 
-	ret = admv1013_update_quad_filters(dev);
-	if (ret < 0)
-		return ret;
-
-	return NOTIFY_OK;
+	return notifier_from_errno(admv1013_update_quad_filters(dev));
 }
 
 static void admv1013_clk_notifier_unreg(void *data)
@@ -545,11 +370,26 @@ static void admv1013_clk_notifier_unreg(void *data)
 	clk_notifier_unregister(dev->clkin, &dev->nb);
 }
 
+#define ADMV1013_CHAN(_channel, rf_comp) {			\
+	.type = IIO_ALTVOLTAGE,					\
+	.modified = 1,						\
+	.output = 1,						\
+	.indexed = 1,						\
+	.channel2 = IIO_MOD_##rf_comp,				\
+	.channel = _channel,					\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE) |	\
+		BIT(IIO_CHAN_INFO_OFFSET)			\
+	}
+
+static const struct iio_chan_spec admv1013_channels[] = {
+	ADMV1013_CHAN(0, I),
+	ADMV1013_CHAN(0, Q),
+};
+
 static int admv1013_init(struct admv1013_dev *dev)
 {
 	int ret;
-	u32 vcm, mixer_vgate;
-	u32 chip_id;
+	unsigned int chip_id, enable_reg, enable_reg_msk;
 	bool temp_parity = dev->parity_en;
 
 	dev->parity_en = false;
@@ -575,10 +415,6 @@ static int admv1013_init(struct admv1013_dev *dev)
 
 	dev->parity_en = temp_parity;
 
-	ret = admv1013_spi_write(dev, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
-	if (ret < 0)
-		return ret;
-
 	ret = admv1013_spi_read(dev, ADMV1013_REG_SPI_CONTROL, &chip_id);
 	if (ret < 0)
 		return ret;
@@ -587,33 +423,44 @@ static int admv1013_init(struct admv1013_dev *dev)
 	if (chip_id != ADMV1013_CHIP_ID)
 		return -EINVAL;
 
-	vcm = regulator_get_voltage(dev->reg);
-
-	if (vcm >= 0 && vcm < 1800000)
-		mixer_vgate = (2389 * vcm / 1000000 + 8100) / 100;
-	else if (vcm > 1800000 && vcm < 2600000)
-		mixer_vgate = (2375 * vcm / 1000000 + 125) / 100;
-
-	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
-				 ADMV1013_MIXER_VGATE_MSK,
-				 ADMV1013_MIXER_VGATE(mixer_vgate));
+	ret = admv1013_spi_write(dev, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
 	if (ret < 0)
 		return ret;
 
 	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
-				 ADMV1013_QUAD_SE_MODE_MSK,
-				 ADMV1013_QUAD_SE_MODE(dev->quad_se_mode));
+					ADMV1013_QUAD_SE_MODE_MSK,
+					ADMV1013_QUAD_SE_MODE(dev->quad_se_mode));
 	if (ret < 0)
 		return ret;
 
-	return admv1013_update_quad_filters(dev);
+	ret = admv1013_update_mixer_vgate(dev);
+	if (ret < 0)
+		return ret;
+
+	ret = admv1013_update_quad_filters(dev);
+	if (ret < 0)
+		return ret;
+
+	enable_reg_msk = ADMV1013_VGA_PD_MSK |
+			ADMV1013_MIXER_PD_MSK |
+			ADMV1013_QUAD_PD_MSK |
+			ADMV1013_BG_PD_MSK |
+			ADMV1013_MIXER_IF_EN_MSK |
+			ADMV1013_DET_EN_MSK;
+
+	enable_reg = ADMV1013_VGA_PD(dev->vga_pd) |
+			ADMV1013_MIXER_PD(dev->mixer_pd) |
+			ADMV1013_QUAD_PD(dev->quad_pd) |
+			ADMV1013_BG_PD(dev->bg_pd) |
+			ADMV1013_MIXER_IF_EN(dev->mixer_if_en) |
+			ADMV1013_DET_EN(dev->det_en);
+
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_ENABLE, enable_reg_msk, enable_reg);
 }
 
 static void admv1013_clk_disable(void *data)
 {
-	struct admv1013_dev *dev = data;
-
-	clk_disable_unprepare(dev->clkin);
+	clk_disable_unprepare(data);
 }
 
 static void admv1013_reg_disable(void *data)
@@ -621,11 +468,38 @@ static void admv1013_reg_disable(void *data)
 	regulator_disable(data);
 }
 
+static int admv1013_dt_parse(struct admv1013_dev *dev)
+{
+	int ret;
+	struct spi_device *spi = dev->spi;
+
+	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-en");
+	dev->vga_pd = of_property_read_bool(spi->dev.of_node, "adi,vga-pd");
+	dev->mixer_pd = of_property_read_bool(spi->dev.of_node, "adi,mixer-pd");
+	dev->quad_pd = of_property_read_bool(spi->dev.of_node, "adi,quad-pd");
+	dev->bg_pd = of_property_read_bool(spi->dev.of_node, "adi,bg-pd");
+	dev->mixer_if_en = of_property_read_bool(spi->dev.of_node, "adi,mixer-if-en");
+	dev->det_en = of_property_read_bool(spi->dev.of_node, "adi,det-en");
+
+	ret = of_property_read_u32(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
+	if (ret < 0)
+		dev->quad_se_mode = 12;
+
+	dev->reg = devm_regulator_get(&spi->dev, "vcm");
+	if (IS_ERR(dev->reg))
+		return PTR_ERR(dev->reg);
+
+	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
+	if (IS_ERR(dev->clkin))
+		return PTR_ERR(dev->clkin);
+
+	return of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
+}
+
 static int admv1013_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
 	struct admv1013_dev *dev;
-	struct clock_scale dev_clkscale;
 	int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
@@ -634,17 +508,17 @@ static int admv1013_probe(struct spi_device *spi)
 
 	dev = iio_priv(indio_dev);
 
-	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
-	if (ret < 0) {
-		dev_err(&spi->dev, "adi,quad-se-mode property not defined!");
-		return -EINVAL;
-	}
+	indio_dev->dev.parent = &spi->dev;
+	indio_dev->info = &admv1013_info;
+	indio_dev->name = "admv1013";
+	indio_dev->channels = admv1013_channels;
+	indio_dev->num_channels = ARRAY_SIZE(admv1013_channels);
 
-	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-enable");
+	dev->spi = spi;
 
-	dev->reg = devm_regulator_get(&spi->dev, "cmv");
-	if (IS_ERR(dev->reg))
-		return PTR_ERR(dev->reg);
+	ret = admv1013_dt_parse(dev);
+	if (ret < 0)
+		return ret;
 
 	ret = regulator_enable(dev->reg);
 	if (ret < 0) {
@@ -657,37 +531,26 @@ static int admv1013_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
-	indio_dev->dev.parent = &spi->dev;
-	indio_dev->info = &admv1013_info;
-	indio_dev->name = "admv1013";
-
-	dev->spi = spi;
-
-	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
-	if (IS_ERR(dev->clkin))
-		return PTR_ERR(dev->clkin);
-
 	ret = clk_prepare_enable(dev->clkin);
 	if (ret < 0)
 		return ret;
 
-	ret = devm_add_action_or_reset(&spi->dev, admv1013_clk_disable, dev);
+	ret = devm_add_action_or_reset(&spi->dev, admv1013_clk_disable, dev->clkin);
 	if (ret < 0)
 		return ret;
 
-	of_clk_get_scale(spi->dev.of_node, "lo_in", &dev_clkscale);
+	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, &dev->clkscale);
 
-	dev->clkscale = &dev_clkscale;
-
-	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, dev->clkscale);
 	dev->nb.notifier_call = admv1013_freq_change;
 	ret = clk_notifier_register(dev->clkin, &dev->nb);
-	if (ret)
+	if (ret < 0)
 		return ret;
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1013_clk_notifier_unreg, dev);
 	if (ret < 0)
 		return ret;
+
+	mutex_init(&dev->lock);
 
 	ret = admv1013_init(dev);
 	if (ret < 0) {

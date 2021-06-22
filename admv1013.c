@@ -127,7 +127,6 @@ static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
 {
 	int ret;
 	unsigned int cnt, temp;
-	struct spi_message m;
 	struct spi_transfer t = {0};
 	u8 data[3];
 
@@ -139,9 +138,7 @@ static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
 	t.tx_buf = &data[0];
 	t.len = 3;
 
-	spi_message_init_with_transfers(&m, &t, 1);
-
-	ret = spi_sync(dev->spi, &m);
+	ret = spi_sync_transfer(dev->spi, &t, 1);
 	if (ret < 0)
 		return ret;
 
@@ -259,27 +256,18 @@ static int admv1013_write_raw(struct iio_dev *indio_dev,
 
 	switch (info) {
 	case IIO_CHAN_INFO_OFFSET:
-		if (chan->channel2 == IIO_MOD_I) {
+		if (chan->channel2 == IIO_MOD_I)
 			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_I,
-							ADMV1013_MIXER_OFF_ADJ_I_P_MSK,
-							ADMV1013_MIXER_OFF_ADJ_I_P(val));
-			if (ret < 0)
-				return ret;
-
-			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_I,
+							ADMV1013_MIXER_OFF_ADJ_I_P_MSK |
 							ADMV1013_MIXER_OFF_ADJ_I_N_MSK,
+							ADMV1013_MIXER_OFF_ADJ_I_P(val) |
 							ADMV1013_MIXER_OFF_ADJ_I_N(val2));
-		} else {
+		else
 			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_Q,
-							ADMV1013_MIXER_OFF_ADJ_Q_P_MSK,
-							ADMV1013_MIXER_OFF_ADJ_Q_P(val));
-			if (ret < 0)
-				return ret;
-
-			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_Q,
+							ADMV1013_MIXER_OFF_ADJ_Q_P_MSK |
 							ADMV1013_MIXER_OFF_ADJ_Q_N_MSK,
+							ADMV1013_MIXER_OFF_ADJ_Q_P(val) |
 							ADMV1013_MIXER_OFF_ADJ_Q_N(val2));
-		}
 
 		return ret;
 	case IIO_CHAN_INFO_PHASE:
@@ -450,7 +438,7 @@ static int admv1013_init(struct admv1013_dev *dev)
 
 	enable_reg = ADMV1013_VGA_PD(dev->vga_pd) |
 			ADMV1013_MIXER_PD(dev->mixer_pd) |
-			ADMV1013_QUAD_PD(dev->quad_pd) |
+			ADMV1013_QUAD_PD(dev->quad_pd ? 7 : 0) |
 			ADMV1013_BG_PD(dev->bg_pd) |
 			ADMV1013_MIXER_IF_EN(dev->mixer_if_en) |
 			ADMV1013_DET_EN(dev->det_en);

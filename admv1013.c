@@ -20,8 +20,6 @@
 #include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
 
-#include <linux/iio/sysfs.h>
-
 /* ADMV1013 Register Map */
 #define ADMV1013_REG_SPI_CONTROL		0x00
 #define ADMV1013_REG_ALARM			0x01
@@ -108,6 +106,7 @@ struct admv1013_dev {
 	struct spi_device	*spi;
 	struct clk		*clkin;
 	struct clock_scale	clkscale;
+	/* Protect against concurrent accesses to the device */
 	struct mutex		lock;
 	struct regulator	*reg;
 	struct notifier_block	nb;
@@ -256,6 +255,8 @@ static int admv1013_write_raw(struct iio_dev *indio_dev,
 
 	switch (info) {
 	case IIO_CHAN_INFO_OFFSET:
+		val2 /= 100000;
+
 		if (chan->channel2 == IIO_MOD_I)
 			ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_I,
 							ADMV1013_MIXER_OFF_ADJ_I_P_MSK |
@@ -312,6 +313,8 @@ static int admv1013_update_mixer_vgate(struct admv1013_dev *dev)
 		mixer_vgate = (2389 * vcm / 1000000 + 8100) / 100;
 	else if (vcm > 1800000 && vcm < 2600000)
 		mixer_vgate = (2375 * vcm / 1000000 + 125) / 100;
+	else
+		return -EINVAL;
 
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
 				 ADMV1013_MIXER_VGATE_MSK,
@@ -340,15 +343,19 @@ static const struct iio_info admv1013_info = {
 	.debugfs_reg_access = &admv1013_reg_access,
 };
 
-static int admv1013_freq_change(struct notifier_block *nb, unsigned long flags, void *data)
+static int admv1013_freq_change(struct notifier_block *nb, unsigned long action, void *data)
 {
 	struct admv1013_dev *dev = container_of(nb, struct admv1013_dev, nb);
 	struct clk_notifier_data *cnd = data;
 
-	/* cache the new rate */
-	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, &dev->clkscale);
+	if (action == POST_RATE_CHANGE) {
+		/* cache the new rate */
+		dev->clkin_freq = clk_get_rate_scaled(cnd->clk, &dev->clkscale);
 
-	return notifier_from_errno(admv1013_update_quad_filters(dev));
+		return notifier_from_errno(admv1013_update_quad_filters(dev));
+	}
+
+	return NOTIFY_OK;
 }
 
 static void admv1013_clk_notifier_unreg(void *data)

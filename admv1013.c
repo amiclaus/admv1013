@@ -484,11 +484,11 @@ static void admv1013_clk_notifier_unreg(void *data)
 }
 
 static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
-	_ADMV1013_EXT_INFO("device_powerdown", ADMV1013_DEV_PWRDOWN, IIO_SEPARATE),
-	_ADMV1013_EXT_INFO("quadrupler_powerdown", ADMV1013_QUAD_PWRDOWN, IIO_SEPARATE),
-	_ADMV1013_EXT_INFO("vga_powerdown", ADMV1013_VGA_PWRDOWN, IIO_SEPARATE),
-	_ADMV1013_EXT_INFO("mixer_powerdown", ADMV1013_MIXER_PWRDOWN, IIO_SEPARATE),
-	_ADMV1013_EXT_INFO("detector_powerdown", ADMV1013_DET_PWRDOWN, IIO_SEPARATE),
+	_ADMV1013_EXT_INFO("device_powerdown", IIO_SEPARATE, ADMV1013_DEV_PWRDOWN),
+	_ADMV1013_EXT_INFO("quadrupler_powerdown", IIO_SEPARATE, ADMV1013_QUAD_PWRDOWN),
+	_ADMV1013_EXT_INFO("vga_powerdown", IIO_SEPARATE, ADMV1013_VGA_PWRDOWN),
+	_ADMV1013_EXT_INFO("mixer_powerdown", IIO_SEPARATE, ADMV1013_MIXER_PWRDOWN),
+	_ADMV1013_EXT_INFO("detector_powerdown", IIO_SEPARATE, ADMV1013_DET_PWRDOWN),
 	{ },
 };
 

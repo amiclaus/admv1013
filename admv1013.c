@@ -497,7 +497,6 @@ static int admv1013_probe(struct spi_device *spi)
 
 	st = iio_priv(indio_dev);
 
-	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1013_info;
 	indio_dev->name = "admv1013";
 	indio_dev->channels = admv1013_channels;

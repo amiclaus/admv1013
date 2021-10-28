@@ -42,39 +42,48 @@ properties:
     description:
       Analog voltage regulator.
 
-  adi,vga-pd:
+  adi,vga-powerdown:
     description:
-      Power Down the Voltage Gain Amplifier Circuit.
+      Power Down the Voltage Gain Amplifier Circuit available at 
+      BG_RBIAS2 pin.
     type: boolean
 
-  adi,mixer-pd:
+  adi,mixer-powerdown:
     description:
-      Power Down the Mixer Circuit.
+      Power Down the Mixer Circuit. Enable to put the block in
+      a power down state.
     type: boolean
 
-  adi,quad-pd:
+  adi,quad-powerdown:
     description:
-      Power Down the Quadrupler.
+      Power Down the Quadrupler. Enable to put the block in
+      a power down state.
     type: boolean
 
-  adi,bg-pd:
+  adi,bg-powerdown:
     description:
-      Power Down the Transmitter Band Gap.
+      Power Down the Transmitter Band Gap. Enable to put the part in
+      a power down state.
     type: boolean
 
-  adi,mixer-if-en:
+  adi,mixer-if-enable:
     description:
-      Enable the Intermediate Frequency Mode.
+      Enable the Intermediate Frequency Mode. Either IF Mode or I/Q Mode
+      can be enabled at a time.
     type: boolean
 
-  adi,det-en:
+  adi,detector-enable:
     description:
-      Enable the Envelope Detector.
+      Enable the Envelope Detector available at output pins VENV_P and
+      VENV_N. Disable to reduce power consumption.
     type: boolean
 
   adi,quad-se-mode:
     description:
       Switch the LO path from differential to single-ended operation.
+      Set value 6 for Single-Ended Mode, Negative Side Disabled.
+      Set value 9 for Single-Ended Mode, Positive Side Disabled.
+      Set value 12 for Differential Mode.
     $ref: /schemas/types.yaml#/definitions/uint32
     enum: [6, 9, 12]
 
@@ -103,8 +112,8 @@ examples:
         clock-names = "lo_in";
         vcm-supply = <&vcm>;
         adi,quad-se-mode = <12>;
-        adi,mixer-if-en;
-        adi,det-en;
+        adi,mixer-if-enable;
+        adi,detector-enable;
       };
     };
 ...

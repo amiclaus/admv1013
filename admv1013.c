@@ -6,7 +6,6 @@
  */
 
 #include <linux/bitfield.h>
-#include <linux/bitops.h>
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
@@ -14,10 +13,12 @@
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
+#include <linux/mod_devicetable.h>
 #include <linux/notifier.h>
-#include <linux/regmap.h>
+#include <linux/property.h>
 #include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
+#include <linux/units.h>
 
 #include <asm/unaligned.h>
 
@@ -54,20 +55,13 @@
 #define ADMV1013_MIXER_IF_EN_MSK		BIT(7)
 #define ADMV1013_DET_EN_MSK			BIT(5)
 
-/* ADMV1013_REG_LO_AMP_I Map */
-#define ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK	GENMASK(13, 7)
+/* ADMV1013_REG_LO_AMP Map */
+#define ADMV1013_LOAMP_PH_ADJ_FINE_MSK		GENMASK(13, 7)
 #define ADMV1013_MIXER_VGATE_MSK		GENMASK(6, 0)
 
-/* ADMV1013_REG_LO_AMP_Q Map */
-#define ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK	GENMASK(13, 7)
-
-/* ADMV1013_REG_OFFSET_ADJUST_I Map */
-#define ADMV1013_MIXER_OFF_ADJ_I_P_MSK		GENMASK(15, 9)
-#define ADMV1013_MIXER_OFF_ADJ_I_N_MSK		GENMASK(8, 2)
-
-/* ADMV1013_REG_OFFSET_ADJUST_Q Map */
-#define ADMV1013_MIXER_OFF_ADJ_Q_P_MSK		GENMASK(15, 9)
-#define ADMV1013_MIXER_OFF_ADJ_Q_N_MSK		GENMASK(8, 2)
+/* ADMV1013_REG_OFFSET_ADJUST Map */
+#define ADMV1013_MIXER_OFF_ADJ_P_MSK		GENMASK(15, 9)
+#define ADMV1013_MIXER_OFF_ADJ_N_MSK		GENMASK(8, 2)
 
 /* ADMV1013_REG_QUAD Map */
 #define ADMV1013_QUAD_SE_MODE_MSK		GENMASK(9, 6)
@@ -79,7 +73,7 @@
 struct admv1013_state {
 	struct spi_device	*spi;
 	struct clk		*clkin;
-	/* Protect against concurrent accesses to the device */
+	/* Protect against concurrent accesses to the device and to data */
 	struct mutex		lock;
 	struct regulator	*reg;
 	struct notifier_block	nb;
@@ -181,42 +175,35 @@ static int admv1013_read_raw(struct iio_dev *indio_dev,
 			     int *val, int *val2, long info)
 {
 	struct admv1013_state *st = iio_priv(indio_dev);
-	unsigned int data;
+	unsigned int data, addr;
 	int ret;
 
 	switch (info) {
 	case IIO_CHAN_INFO_OFFSET:
-		if (chan->channel2 == IIO_MOD_I) {
-			ret = admv1013_spi_read(st, ADMV1013_REG_OFFSET_ADJUST_I, &data);
-			if (ret)
-				return ret;
+		if (chan->channel2 == IIO_MOD_I)
+			addr = ADMV1013_REG_OFFSET_ADJUST_I;
+		else
+			addr = ADMV1013_REG_OFFSET_ADJUST_Q;
 
-			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_I_P_MSK, data);
-			*val2 = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_I_N_MSK, data);
-		} else {
-			ret = admv1013_spi_read(st, ADMV1013_REG_OFFSET_ADJUST_Q, &data);
-			if (ret)
-				return ret;
+		ret = admv1013_spi_read(st, addr, &data);
+		if (ret)
+			return ret;
 
-			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_Q_P_MSK, data);
-			*val2 = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_Q_N_MSK, data);
-		}
+		*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+		*val2 = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
 
 		return IIO_VAL_INT_MULTIPLE;
 	case IIO_CHAN_INFO_PHASE:
-		if (chan->channel2 == IIO_MOD_I) {
-			ret = admv1013_spi_read(st, ADMV1013_REG_LO_AMP_I, &data);
-			if (ret)
-				return ret;
+		if (chan->channel2 == IIO_MOD_I)
+			addr = ADMV1013_REG_LO_AMP_I;
+		else
+			addr = ADMV1013_REG_LO_AMP_Q;
 
-			*val = FIELD_GET(ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK, data);
-		} else {
-			ret = admv1013_spi_read(st, ADMV1013_REG_LO_AMP_Q, &data);
-			if (ret)
-				return ret;
+		ret = admv1013_spi_read(st, addr, &data);
+		if (ret)
+			return ret;
 
-			*val = FIELD_GET(ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK, data);
-		}
+		*val = FIELD_GET(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
 
 		return IIO_VAL_INT;
 	default:
@@ -237,27 +224,27 @@ static int admv1013_write_raw(struct iio_dev *indio_dev,
 
 		if (chan->channel2 == IIO_MOD_I)
 			ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_I,
-						       ADMV1013_MIXER_OFF_ADJ_I_P_MSK |
-						       ADMV1013_MIXER_OFF_ADJ_I_N_MSK,
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_I_P_MSK, val) |
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_I_N_MSK, val2));
+						       ADMV1013_MIXER_OFF_ADJ_P_MSK |
+						       ADMV1013_MIXER_OFF_ADJ_N_MSK,
+						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val) |
+						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val2));
 		else
 			ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_Q,
-						       ADMV1013_MIXER_OFF_ADJ_Q_P_MSK |
-						       ADMV1013_MIXER_OFF_ADJ_Q_N_MSK,
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_Q_P_MSK, val) |
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_Q_N_MSK, val2));
+						       ADMV1013_MIXER_OFF_ADJ_P_MSK |
+						       ADMV1013_MIXER_OFF_ADJ_N_MSK,
+						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val) |
+						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val2));
 
 		return ret;
 	case IIO_CHAN_INFO_PHASE:
 		if (chan->channel2 == IIO_MOD_I)
 			return admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_I,
-							ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK,
-							FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK, val));
+							ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
+							FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, val));
 		else
 			return admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_Q,
-							ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK,
-							FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK, val));
+							ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
+							FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, val));
 	default:
 		return -EINVAL;
 	}
@@ -268,11 +255,11 @@ static int admv1013_update_quad_filters(struct admv1013_state *st)
 	unsigned int filt_raw;
 	u64 rate = clk_get_rate(st->clkin);
 
-	if (rate >= 5400000000 && rate <= 7000000000)
+	if (rate >= (5400 * HZ_PER_MHZ) && rate <= (7000 * HZ_PER_MHZ))
 		filt_raw = 15;
-	else if (rate >= 5400000000 && rate <= 8000000000)
+	else if (rate >= (5400 * HZ_PER_MHZ) && rate <= (8000 * HZ_PER_MHZ))
 		filt_raw = 10;
-	else if (rate >= 6600000000 && rate <= 9200000000)
+	else if (rate >= (6600 * HZ_PER_MHZ) && rate <= (9200 * HZ_PER_MHZ))
 		filt_raw = 5;
 	else
 		filt_raw = 0;
@@ -306,14 +293,11 @@ static int admv1013_reg_access(struct iio_dev *indio_dev,
 			       unsigned int *read_val)
 {
 	struct admv1013_state *st = iio_priv(indio_dev);
-	int ret;
 
 	if (read_val)
-		ret = admv1013_spi_read(st, reg, read_val);
+		return admv1013_spi_read(st, reg, read_val);
 	else
-		ret = admv1013_spi_write(st, reg, write_val);
-
-	return ret;
+		return admv1013_spi_write(st, reg, write_val);
 }
 
 static const struct iio_info admv1013_info = {
@@ -335,13 +319,6 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 	}
 
 	return NOTIFY_OK;
-}
-
-static void admv1013_clk_notifier_unreg(void *data)
-{
-	struct admv1013_state *st = data;
-
-	clk_notifier_unregister(st->clkin, &st->nb);
 }
 
 #define ADMV1013_CHAN(_channel, rf_comp) {			\
@@ -461,12 +438,12 @@ static int admv1013_properties_parse(struct admv1013_state *st)
 	int ret;
 	struct spi_device *spi = st->spi;
 
-	st->vga_pd = device_property_read_bool(&spi->dev, "adi,vga-pd");
-	st->mixer_pd = device_property_read_bool(&spi->dev, "adi,mixer-pd");
-	st->quad_pd = device_property_read_bool(&spi->dev, "adi,quad-pd");
-	st->bg_pd = device_property_read_bool(&spi->dev, "adi,bg-pd");
-	st->mixer_if_en = device_property_read_bool(&spi->dev, "adi,mixer-if-en");
-	st->det_en = device_property_read_bool(&spi->dev, "adi,det-en");
+	st->vga_pd = device_property_read_bool(&spi->dev, "adi,vga-powerdown");
+	st->mixer_pd = device_property_read_bool(&spi->dev, "adi,mixer-powerdown");
+	st->quad_pd = device_property_read_bool(&spi->dev, "adi,quad-powerdown");
+	st->bg_pd = device_property_read_bool(&spi->dev, "adi,bg-powerdown");
+	st->mixer_if_en = device_property_read_bool(&spi->dev, "adi,mixer-if-enable");
+	st->det_en = device_property_read_bool(&spi->dev, "adi,detector-enable");
 
 	ret = device_property_read_u32(&spi->dev, "adi,quad-se-mode", &st->quad_se_mode);
 	if (ret)
@@ -528,11 +505,7 @@ static int admv1013_probe(struct spi_device *spi)
 		return ret;
 
 	st->nb.notifier_call = admv1013_freq_change;
-	ret = clk_notifier_register(st->clkin, &st->nb);
-	if (ret)
-		return ret;
-
-	ret = devm_add_action_or_reset(&spi->dev, admv1013_clk_notifier_unreg, st);
+	ret = devm_clk_notifier_register(&spi->dev, st->clkin, &st->nb);
 	if (ret)
 		return ret;
 

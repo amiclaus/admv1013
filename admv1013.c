@@ -179,7 +179,7 @@ static int admv1013_read_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	switch (info) {
-	case IIO_CHAN_INFO_OFFSET:
+	case IIO_CHAN_INFO_CALIBBIAS:
 		if (chan->channel2 == IIO_MOD_I)
 			addr = ADMV1013_REG_OFFSET_ADJUST_I;
 		else
@@ -189,10 +189,12 @@ static int admv1013_read_raw(struct iio_dev *indio_dev,
 		if (ret)
 			return ret;
 
-		*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
-		*val2 = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
+		if (!(chan->channel))
+			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+		else
+			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
 
-		return IIO_VAL_INT_MULTIPLE;
+		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_PHASE:
 		if (chan->channel2 == IIO_MOD_I)
 			addr = ADMV1013_REG_LO_AMP_I;
@@ -219,21 +221,26 @@ static int admv1013_write_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	switch (info) {
-	case IIO_CHAN_INFO_OFFSET:
-		val2 /= 100000;
-
-		if (chan->channel2 == IIO_MOD_I)
-			ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_I,
-						       ADMV1013_MIXER_OFF_ADJ_P_MSK |
-						       ADMV1013_MIXER_OFF_ADJ_N_MSK,
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val) |
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val2));
-		else
-			ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_Q,
-						       ADMV1013_MIXER_OFF_ADJ_P_MSK |
-						       ADMV1013_MIXER_OFF_ADJ_N_MSK,
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val) |
-						       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val2));
+	case IIO_CHAN_INFO_CALIBBIAS:
+		if (chan->channel2 == IIO_MOD_I) {
+			if (!(chan->channel))
+				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_I,
+							       ADMV1013_MIXER_OFF_ADJ_P_MSK,
+							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val));
+			else
+				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_I,
+							       ADMV1013_MIXER_OFF_ADJ_N_MSK,
+							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val));
+		} else {
+			if (!(chan->channel))
+				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_Q,
+							       ADMV1013_MIXER_OFF_ADJ_P_MSK,
+							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val));
+			else
+				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_Q,
+							       ADMV1013_MIXER_OFF_ADJ_N_MSK,
+							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val));
+		}
 
 		return ret;
 	case IIO_CHAN_INFO_PHASE:
@@ -321,20 +328,33 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 	return NOTIFY_OK;
 }
 
-#define ADMV1013_CHAN(_channel, rf_comp) {			\
+#define ADMV1013_CHAN_PHASE(_channel, rf_comp) {		\
 	.type = IIO_ALTVOLTAGE,					\
 	.modified = 1,						\
 	.output = 1,						\
 	.indexed = 1,						\
 	.channel2 = IIO_MOD_##rf_comp,				\
 	.channel = _channel,					\
-	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE) |	\
-		BIT(IIO_CHAN_INFO_OFFSET)			\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE)		\
+	}
+
+#define ADMV1013_CHAN_CALIB(_channel, rf_comp) {		\
+	.type = IIO_ALTVOLTAGE,					\
+	.modified = 1,						\
+	.output = 1,						\
+	.indexed = 1,						\
+	.channel2 = IIO_MOD_##rf_comp,				\
+	.channel = _channel,					\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_CALIBBIAS)	\
 	}
 
 static const struct iio_chan_spec admv1013_channels[] = {
-	ADMV1013_CHAN(0, I),
-	ADMV1013_CHAN(0, Q),
+	ADMV1013_CHAN_PHASE(0, I),
+	ADMV1013_CHAN_PHASE(0, Q),
+	ADMV1013_CHAN_CALIB(0, I),
+	ADMV1013_CHAN_CALIB(0, Q),
+	ADMV1013_CHAN_CALIB(1, I),
+	ADMV1013_CHAN_CALIB(1, Q),
 };
 
 static int admv1013_init(struct admv1013_state *st)

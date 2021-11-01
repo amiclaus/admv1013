@@ -44,7 +44,7 @@ properties:
 
   adi,vga-powerdown:
     description:
-      Power Down the Voltage Gain Amplifier Circuit available at 
+      Power Down the Voltage Gain Amplifier Circuit available at
       BG_RBIAS2 pin.
     type: boolean
 

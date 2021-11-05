@@ -70,6 +70,11 @@
 /* ADMV1013_REG_VVA_TEMP_COMP Map */
 #define ADMV1013_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
 
+enum {
+	ADMV1013_LO_FEED_OFFSET_CALIB_P,
+	ADMV1013_LO_FEED_OFFSET_CALIB_N
+};
+
 struct admv1013_state {
 	struct spi_device	*spi;
 	struct clk		*clkin;
@@ -170,6 +175,44 @@ static int admv1013_spi_update_bits(struct admv1013_state *st, unsigned int reg,
 	return ret;
 }
 
+static ssize_t admv1013_read(struct iio_dev *indio_dev,
+			     uintptr_t private,
+			     const struct iio_chan_spec *chan,
+			     char *buf)
+{
+	struct admv1013_state *st = iio_priv(indio_dev);
+	unsigned int data, addr;
+	int ret;
+
+	switch (chan->channel2) {
+	case IIO_MOD_I:
+		addr = ADMV1013_REG_OFFSET_ADJUST_I;
+		break;
+	case IIO_MOD_Q:
+		addr = ADMV1013_REG_OFFSET_ADJUST_Q;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = admv1013_spi_read(st, addr, &data);
+	if (ret)
+		return ret;
+
+	switch ((u32)private) {
+	case ADMV1013_LO_FEED_OFFSET_CALIB_P:
+		data = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+		break;
+	case ADMV1013_LO_FEED_OFFSET_CALIB_N:
+		data = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return sysfs_emit(buf, "%u\n", data);
+}
+
 static int admv1013_read_raw(struct iio_dev *indio_dev,
 			     struct iio_chan_spec const *chan,
 			     int *val, int *val2, long info)
@@ -179,22 +222,6 @@ static int admv1013_read_raw(struct iio_dev *indio_dev,
 	int ret;
 
 	switch (info) {
-	case IIO_CHAN_INFO_CALIBBIAS:
-		if (chan->channel2 == IIO_MOD_I)
-			addr = ADMV1013_REG_OFFSET_ADJUST_I;
-		else
-			addr = ADMV1013_REG_OFFSET_ADJUST_Q;
-
-		ret = admv1013_spi_read(st, addr, &data);
-		if (ret)
-			return ret;
-
-		if (!(chan->channel))
-			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
-		else
-			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
-
-		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_PHASE:
 		if (chan->channel2 == IIO_MOD_I)
 			addr = ADMV1013_REG_LO_AMP_I;
@@ -213,36 +240,55 @@ static int admv1013_read_raw(struct iio_dev *indio_dev,
 	}
 }
 
+static ssize_t admv1013_write(struct iio_dev *indio_dev,
+			      uintptr_t private,
+			      const struct iio_chan_spec *chan,
+			      const char *buf, size_t len)
+{
+	struct admv1013_state *st = iio_priv(indio_dev);
+	unsigned int data, addr, msk;
+	int ret;
+
+	ret = kstrtou32(buf, 10, &data);
+	if (ret)
+		return ret;
+
+	switch (chan->channel2) {
+	case IIO_MOD_I:
+		addr = ADMV1013_REG_OFFSET_ADJUST_I;
+		break;
+	case IIO_MOD_Q:
+		addr = ADMV1013_REG_OFFSET_ADJUST_Q;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	switch ((u32)private) {
+	case ADMV1013_LO_FEED_OFFSET_CALIB_P:
+		msk = ADMV1013_MIXER_OFF_ADJ_P_MSK;
+		data = FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+		break;
+	case ADMV1013_LO_FEED_OFFSET_CALIB_N:
+		msk = ADMV1013_MIXER_OFF_ADJ_N_MSK;
+		data = FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = admv1013_spi_update_bits(st, addr, msk, data);
+
+	return ret ? ret : len;
+}
+
 static int admv1013_write_raw(struct iio_dev *indio_dev,
 			      struct iio_chan_spec const *chan,
 			      int val, int val2, long info)
 {
 	struct admv1013_state *st = iio_priv(indio_dev);
-	int ret;
 
 	switch (info) {
-	case IIO_CHAN_INFO_CALIBBIAS:
-		if (chan->channel2 == IIO_MOD_I) {
-			if (!(chan->channel))
-				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_I,
-							       ADMV1013_MIXER_OFF_ADJ_P_MSK,
-							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val));
-			else
-				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_I,
-							       ADMV1013_MIXER_OFF_ADJ_N_MSK,
-							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val));
-		} else {
-			if (!(chan->channel))
-				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_Q,
-							       ADMV1013_MIXER_OFF_ADJ_P_MSK,
-							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val));
-			else
-				ret = admv1013_spi_update_bits(st, ADMV1013_REG_OFFSET_ADJUST_Q,
-							       ADMV1013_MIXER_OFF_ADJ_N_MSK,
-							       FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val));
-		}
-
-		return ret;
 	case IIO_CHAN_INFO_PHASE:
 		if (chan->channel2 == IIO_MOD_I)
 			return admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_I,
@@ -328,6 +374,22 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 	return NOTIFY_OK;
 }
 
+#define _ADMV1013_EXT_INFO(_name, _shared, _ident) { \
+		.name = _name, \
+		.read = admv1013_read, \
+		.write = admv1013_write, \
+		.private = _ident, \
+		.shared = _shared, \
+}
+
+static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
+	_ADMV1013_EXT_INFO("lo_feedthrough_offset_calib_positive", IIO_SEPARATE,
+			   ADMV1013_LO_FEED_OFFSET_CALIB_P),
+	_ADMV1013_EXT_INFO("lo_feedthrough_offset_calib_negative", IIO_SEPARATE,
+			   ADMV1013_LO_FEED_OFFSET_CALIB_N),
+	{ },
+};
+
 #define ADMV1013_CHAN_PHASE(_channel, rf_comp) {		\
 	.type = IIO_ALTVOLTAGE,					\
 	.modified = 1,						\
@@ -338,23 +400,21 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE)		\
 	}
 
-#define ADMV1013_CHAN_CALIB(_channel, rf_comp) {		\
+#define ADMV1013_FEED_LO_CALIB(_channel, rf_comp,  _admv1013_ext_info) {\
 	.type = IIO_ALTVOLTAGE,					\
 	.modified = 1,						\
 	.output = 1,						\
 	.indexed = 1,						\
 	.channel2 = IIO_MOD_##rf_comp,				\
 	.channel = _channel,					\
-	.info_mask_separate = BIT(IIO_CHAN_INFO_CALIBBIAS)	\
+	.ext_info = _admv1013_ext_info,				\
 	}
 
 static const struct iio_chan_spec admv1013_channels[] = {
 	ADMV1013_CHAN_PHASE(0, I),
 	ADMV1013_CHAN_PHASE(0, Q),
-	ADMV1013_CHAN_CALIB(0, I),
-	ADMV1013_CHAN_CALIB(0, Q),
-	ADMV1013_CHAN_CALIB(1, I),
-	ADMV1013_CHAN_CALIB(1, Q),
+	ADMV1013_FEED_LO_CALIB(0, I, admv1013_ext_info),
+	ADMV1013_FEED_LO_CALIB(0, Q, admv1013_ext_info),
 };
 
 static int admv1013_init(struct admv1013_state *st)

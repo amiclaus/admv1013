@@ -1,10 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0
 /dts-v1/;
 /plugin/;
 
 / {
 	compatible = "brcm,bcm2835";
-
-
 
 	fragment@0 {
 		target = <&spidev0>;
@@ -32,9 +31,9 @@
 	fragment@2 {
 		target-path = "/";
 		__overlay__ {
-			cmv: fixedregulator@0 {
+			vcm: fixedregulator@0 {
 				compatible = "regulator-fixed";
-				regulator-name = "cmv";
+				regulator-name = "vcm";
 				regulator-min-microvolt = <0>;
 				regulator-max-microvolt = <0>;
 				regulator-boot-on;
@@ -57,10 +56,10 @@
 				clocks = <&admv1013_lo>;
 				clock-names = "lo_in";
 				clock-scales = <1 5>;
-				cmv-supply = <&cmv>;
+				vcm-supply = <&vcm>;
 				adi,quad-se-mode = <12>;
 				adi,parity-en;
 			};
 		};
 	};
-}; 
+};

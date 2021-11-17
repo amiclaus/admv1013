@@ -42,36 +42,6 @@ properties:
     description:
       Analog voltage regulator.
 
-  adi,vga-powerdown:
-    description:
-      Power Down the Voltage Gain Amplifier Circuit available at
-      BG_RBIAS2 pin.
-    type: boolean
-
-  adi,mixer-powerdown:
-    description:
-      Power Down the Mixer Circuit. Enable to put the block in
-      a power down state.
-    type: boolean
-
-  adi,quad-powerdown:
-    description:
-      Power Down the Quadrupler. Enable to put the block in
-      a power down state.
-    type: boolean
-
-  adi,bg-powerdown:
-    description:
-      Power Down the Transmitter Band Gap. Enable to put the part in
-      a power down state.
-    type: boolean
-
-  adi,mixer-if-enable:
-    description:
-      Enable the Intermediate Frequency Mode. Either IF Mode or I/Q Mode
-      can be enabled at a time.
-    type: boolean
-
   adi,detector-enable:
     description:
       Enable the Envelope Detector available at output pins VENV_P and
@@ -81,11 +51,10 @@ properties:
   adi,quad-se-mode:
     description:
       Switch the LO path from differential to single-ended operation.
-      Set value 6 for Single-Ended Mode, Negative Side Disabled.
-      Set value 9 for Single-Ended Mode, Positive Side Disabled.
-      Set value 12 for Differential Mode.
-    $ref: /schemas/types.yaml#/definitions/uint32
-    enum: [6, 9, 12]
+      se-neg - Single-Ended Mode, Negative Side Disabled.
+      se-pos - Single-Ended Mode, Positive Side Disabled.
+      diff - Differential Mode.
+    enum: [se-neg, se-pos, diff]
 
   '#clock-cells':
     const: 0
@@ -111,8 +80,7 @@ examples:
         clocks = <&admv1013_lo>;
         clock-names = "lo_in";
         vcm-supply = <&vcm>;
-        adi,quad-se-mode = <12>;
-        adi,mixer-if-enable;
+        adi,quad-se-mode = "diff";
         adi,detector-enable;
       };
     };

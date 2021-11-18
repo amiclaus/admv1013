@@ -420,11 +420,12 @@ static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
 	.indexed = 1,						\
 	.channel2 = _channel2,					\
 	.channel = _channel,					\
+	.differential = 1,					\
 	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE),		\
 	.ext_info = _admv1013_ext_info,				\
 	}
 
-#define ADMV1013_FEED_LO_CALIB(_channel, _admv1013_ext_info) {\
+#define ADMV1013_CHAN_CALIB(_channel, _admv1013_ext_info) {\
 	.type = IIO_ALTVOLTAGE,					\
 	.output = 0,						\
 	.indexed = 1,						\
@@ -435,8 +436,8 @@ static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
 
 static const struct iio_chan_spec admv1013_channels[] = {
 	ADMV1013_CHAN_PHASE(0, 1, admv1013_ext_info),
-	ADMV1013_FEED_LO_CALIB(0, admv1013_ext_info),
-	ADMV1013_FEED_LO_CALIB(1, admv1013_ext_info),
+	ADMV1013_CHAN_CALIB(0, admv1013_ext_info),
+	ADMV1013_CHAN_CALIB(1, admv1013_ext_info),
 };
 
 static int admv1013_init(struct admv1013_state *st)

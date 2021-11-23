@@ -400,14 +400,6 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 		.shared = _shared, \
 }
 
-#define IIO_ENUM_AVAILABLE_SHARED(_name, _shared, _e) \
-{ \
-	.name = (_name "_available"), \
-	.shared = _shared, \
-	.read = iio_enum_available_read, \
-	.private = (uintptr_t)(_e), \
-}
-
 static const struct iio_enum admv1013_mode_enum = {
 	.items = admv1013_modes,
 	.num_items = ARRAY_SIZE(admv1013_modes),
@@ -418,8 +410,8 @@ static const struct iio_enum admv1013_mode_enum = {
 static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
 	_ADMV1013_EXT_INFO("i", IIO_SEPARATE, ADMV1013_RFMOD_I),
 	_ADMV1013_EXT_INFO("q", IIO_SEPARATE, ADMV1013_RFMOD_Q),
-	IIO_ENUM("mode", IIO_SHARED_BY_ALL, &admv1013_mode_enum),
-	IIO_ENUM_AVAILABLE_SHARED("mode", IIO_SHARED_BY_ALL, &admv1013_mode_enum),
+	IIO_ENUM("freq_mode", IIO_SHARED_BY_ALL, &admv1013_mode_enum),
+	IIO_ENUM_AVAILABLE("freq_mode", IIO_SHARED_BY_ALL, &admv1013_mode_enum),
 	{ },
 };
 

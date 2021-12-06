@@ -77,19 +77,19 @@
 #define ADMV1013_REG_DATA_MSK			GENMASK(16, 1)
 
 enum {
-	ADMV1013_RFMOD_I,
-	ADMV1013_RFMOD_Q
+	ADMV1013_IQ_MODE,
+	ADMV1013_IF_MODE
+};
+
+enum {
+	ADMV1013_RFMOD_I_PHASE,
+	ADMV1013_RFMOD_Q_PHASE,
 };
 
 enum {
 	ADMV1013_SE_MODE_POS = 6,
 	ADMV1013_SE_MODE_NEG = 9,
 	ADMV1013_SE_MODE_DIFF = 12
-};
-
-static const char * const admv1013_modes[] = {
-	[0] = "iq",
-	[1] = "if"
 };
 
 struct admv1013_state {
@@ -99,6 +99,7 @@ struct admv1013_state {
 	struct mutex		lock;
 	struct regulator	*reg;
 	struct notifier_block	nb;
+	unsigned int		input_mode;
 	unsigned int		quad_se_mode;
 	bool			det_en;
 	u8			data[3] ____cacheline_aligned;
@@ -188,33 +189,6 @@ static int admv1013_spi_update_bits(struct admv1013_state *st, unsigned int reg,
 	return ret;
 }
 
-static int admv1013_get_mode(struct iio_dev *indio_dev,
-			     const struct iio_chan_spec *chan)
-{
-	struct admv1013_state *st = iio_priv(indio_dev);
-	unsigned int data;
-	int ret;
-
-	ret = admv1013_spi_read(st, ADMV1013_REG_ENABLE, &data);
-	if (ret)
-		return ret;
-
-	data = FIELD_GET(ADMV1013_MIXER_IF_EN_MSK, data);
-
-	return data;
-}
-
-static int admv1013_set_mode(struct iio_dev *indio_dev,
-			     const struct iio_chan_spec *chan,
-			     unsigned int mode)
-{
-	struct admv1013_state *st = iio_priv(indio_dev);
-
-	return admv1013_spi_update_bits(st, ADMV1013_REG_ENABLE,
-					ADMV1013_MIXER_IF_EN_MSK,
-					FIELD_PREP(ADMV1013_MIXER_IF_EN_MSK, mode));
-}
-
 static ssize_t admv1013_read(struct iio_dev *indio_dev,
 			     uintptr_t private,
 			     const struct iio_chan_spec *chan,
@@ -226,10 +200,10 @@ static ssize_t admv1013_read(struct iio_dev *indio_dev,
 
 	if (chan->differential) {
 		switch ((u32)private) {
-		case ADMV1013_RFMOD_I:
+		case ADMV1013_RFMOD_I_PHASE:
 			addr = ADMV1013_REG_LO_AMP_I;
 			break;
-		case ADMV1013_RFMOD_Q:
+		case ADMV1013_RFMOD_Q_PHASE:
 			addr = ADMV1013_REG_LO_AMP_Q;
 			break;
 		default:
@@ -242,11 +216,11 @@ static ssize_t admv1013_read(struct iio_dev *indio_dev,
 
 		data = FIELD_GET(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
 	} else {
-		switch ((u32)private) {
-		case ADMV1013_RFMOD_I:
+		switch (chan->channel) {
+		case IIO_MOD_I:
 			addr = ADMV1013_REG_OFFSET_ADJUST_I;
 			break;
-		case ADMV1013_RFMOD_Q:
+		case IIO_MOD_Q:
 			addr = ADMV1013_REG_OFFSET_ADJUST_Q;
 			break;
 		default:
@@ -280,14 +254,14 @@ static ssize_t admv1013_write(struct iio_dev *indio_dev,
 		data = FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
 
 		switch ((u32)private) {
-		case ADMV1013_RFMOD_I:
+		case ADMV1013_RFMOD_I_PHASE:
 			ret = admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_I,
 						       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
 						       data);
 			if (ret)
 				return ret;
 			break;
-		case ADMV1013_RFMOD_Q:
+		case ADMV1013_RFMOD_Q_PHASE:
 			ret = admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_Q,
 						       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
 						       data);
@@ -298,11 +272,11 @@ static ssize_t admv1013_write(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	} else {
-		switch ((u32)private) {
-		case ADMV1013_RFMOD_I:
+		switch (chan->channel2) {
+		case IIO_MOD_I:
 			addr = ADMV1013_REG_OFFSET_ADJUST_I;
 			break;
-		case ADMV1013_RFMOD_Q:
+		case IIO_MOD_Q:
 			addr = ADMV1013_REG_OFFSET_ADJUST_Q;
 			break;
 		default:
@@ -400,18 +374,9 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 		.shared = _shared, \
 }
 
-static const struct iio_enum admv1013_mode_enum = {
-	.items = admv1013_modes,
-	.num_items = ARRAY_SIZE(admv1013_modes),
-	.get = admv1013_get_mode,
-	.set = admv1013_set_mode,
-};
-
 static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
-	_ADMV1013_EXT_INFO("i", IIO_SEPARATE, ADMV1013_RFMOD_I),
-	_ADMV1013_EXT_INFO("q", IIO_SEPARATE, ADMV1013_RFMOD_Q),
-	IIO_ENUM("freq_mode", IIO_SHARED_BY_ALL, &admv1013_mode_enum),
-	IIO_ENUM_AVAILABLE("freq_mode", IIO_SHARED_BY_ALL, &admv1013_mode_enum),
+	_ADMV1013_EXT_INFO("i_phase", IIO_SEPARATE, ADMV1013_RFMOD_I_PHASE),
+	_ADMV1013_EXT_INFO("q_phase", IIO_SEPARATE, ADMV1013_RFMOD_Q_PHASE),
 	{ },
 };
 
@@ -422,23 +387,24 @@ static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
 	.channel2 = _channel2,					\
 	.channel = _channel,					\
 	.differential = 1,					\
-	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE),		\
 	.ext_info = _admv1013_ext_info,				\
 	}
 
-#define ADMV1013_CHAN_CALIB(_channel, _admv1013_ext_info) {\
+#define ADMV1013_CHAN_CALIB(_channel, rf_comp) {	\
 	.type = IIO_ALTVOLTAGE,					\
 	.output = 0,						\
 	.indexed = 1,						\
 	.channel = _channel,					\
-	.info_mask_separate = BIT(IIO_CHAN_INFO_PHASE),		\
-	.ext_info = _admv1013_ext_info,				\
+	.channel2 = IIO_MOD_##rf_comp,				\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_CALIBBIAS),	\
 	}
 
 static const struct iio_chan_spec admv1013_channels[] = {
 	ADMV1013_CHAN_PHASE(0, 1, admv1013_ext_info),
-	ADMV1013_CHAN_CALIB(0, admv1013_ext_info),
-	ADMV1013_CHAN_CALIB(1, admv1013_ext_info),
+	ADMV1013_CHAN_CALIB(0, I),
+	ADMV1013_CHAN_CALIB(0, Q),
+	ADMV1013_CHAN_CALIB(1, I),
+	ADMV1013_CHAN_CALIB(1, Q),
 };
 
 static int admv1013_init(struct admv1013_state *st)
@@ -490,7 +456,10 @@ static int admv1013_init(struct admv1013_state *st)
 		return ret;
 
 	return __admv1013_spi_update_bits(st, ADMV1013_REG_ENABLE,
-					  ADMV1013_DET_EN_MSK,  st->det_en);
+					  ADMV1013_DET_EN_MSK |
+					  ADMV1013_MIXER_IF_EN_MSK,
+					  st->det_en |
+					  st->input_mode);
 }
 
 static void admv1013_clk_disable(void *data)
@@ -532,6 +501,17 @@ static int admv1013_properties_parse(struct admv1013_state *st)
 	struct spi_device *spi = st->spi;
 
 	st->det_en = device_property_read_bool(&spi->dev, "adi,detector-enable");
+
+	ret = device_property_read_string(&spi->dev, "adi,input-mode", &str);
+	if (ret)
+		st->input_mode = ADMV1013_IQ_MODE;
+
+	if (!strcmp(str, "iq"))
+		st->input_mode = ADMV1013_IQ_MODE;
+	else if (!strcmp(str, "if"))
+		st->input_mode = ADMV1013_IF_MODE;
+	else
+		return -EINVAL;
 
 	ret = device_property_read_string(&spi->dev, "adi,quad-se-mode", &str);
 	if (ret)

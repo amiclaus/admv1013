@@ -35,9 +35,6 @@ properties:
     items:
       - const: lo_in
 
-  clock-output-names:
-    maxItems: 1
-
   vcm-supply:
     description:
       Analog voltage regulator.
@@ -47,6 +44,13 @@ properties:
       Enable the Envelope Detector available at output pins VENV_P and
       VENV_N. Disable to reduce power consumption.
     type: boolean
+
+  adi,input-mode:
+    description:
+      Select the input mode.
+      iq - in-phase quadrature (I/Q) input
+      if - complex intermediate frequency (IF) input
+    enum: [iq, if]
 
   adi,quad-se-mode:
     description:

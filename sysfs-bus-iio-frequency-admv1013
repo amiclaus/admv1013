@@ -1,14 +1,14 @@
-What:		/sys/bus/iio/devices/iio:deviceX/in_altvoltage0-1_i_phase
+What:		/sys/bus/iio/devices/iio:deviceX/in_altvoltage0-1_i_calibphase
 KernelVersion:
 Contact:	linux-iio@vger.kernel.org
 Description:
-		Read/write value for the Local Oscillatior path quadrature I phase shift.
+		Read/write unscaled value for the Local Oscillatior path quadrature I phase shift.
 
-What:		/sys/bus/iio/devices/iio:deviceX/in_altvoltage0-1_i_phase
+What:		/sys/bus/iio/devices/iio:deviceX/in_altvoltage0-1_i_calibphase
 KernelVersion:
 Contact:	linux-iio@vger.kernel.org
 Description:
-		Read/write value for the Local Oscillatior path quadrature Q phase shift.
+		Read/write unscaled value for the Local Oscillatior path quadrature Q phase shift.
 
 What:		/sys/bus/iio/devices/iio:deviceX/in_altvoltage0_i_calibbias
 KernelVersion:

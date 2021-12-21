@@ -8,8 +8,6 @@
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/clk.h>
-#include <linux/clkdev.h>
-#include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
@@ -82,8 +80,8 @@ enum {
 };
 
 enum {
-	ADMV1013_RFMOD_I_PHASE,
-	ADMV1013_RFMOD_Q_PHASE,
+	ADMV1013_RFMOD_I_CALIBPHASE,
+	ADMV1013_RFMOD_Q_CALIBPHASE,
 };
 
 enum {
@@ -189,33 +187,16 @@ static int admv1013_spi_update_bits(struct admv1013_state *st, unsigned int reg,
 	return ret;
 }
 
-static ssize_t admv1013_read(struct iio_dev *indio_dev,
-			     uintptr_t private,
-			     const struct iio_chan_spec *chan,
-			     char *buf)
+static int admv1013_read_raw(struct iio_dev *indio_dev,
+			     struct iio_chan_spec const *chan,
+			     int *val, int *val2, long info)
 {
 	struct admv1013_state *st = iio_priv(indio_dev);
 	unsigned int data, addr;
 	int ret;
 
-	if (chan->differential) {
-		switch ((u32)private) {
-		case ADMV1013_RFMOD_I_PHASE:
-			addr = ADMV1013_REG_LO_AMP_I;
-			break;
-		case ADMV1013_RFMOD_Q_PHASE:
-			addr = ADMV1013_REG_LO_AMP_Q;
-			break;
-		default:
-			return -EINVAL;
-		}
-
-		ret = admv1013_spi_read(st, addr, &data);
-		if (ret)
-			return ret;
-
-		data = FIELD_GET(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
-	} else {
+	switch (info) {
+	case IIO_CHAN_INFO_CALIBBIAS:
 		switch (chan->channel) {
 		case IIO_MOD_I:
 			addr = ADMV1013_REG_OFFSET_ADJUST_I;
@@ -226,52 +207,31 @@ static ssize_t admv1013_read(struct iio_dev *indio_dev,
 		default:
 			return -EINVAL;
 		}
+
 		ret = admv1013_spi_read(st, addr, &data);
+		if (ret)
+			return ret;
 
 		if (!chan->channel)
-			data = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
 		else
-			data = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
-	}
+			*val = FIELD_GET(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
 
-	return sysfs_emit(buf, "%u\n", data);
+		return IIO_VAL_INT;
+	default:
+		return -EINVAL;
+	}
 }
 
-static ssize_t admv1013_write(struct iio_dev *indio_dev,
-			      uintptr_t private,
-			      const struct iio_chan_spec *chan,
-			      const char *buf, size_t len)
+static int admv1013_write_raw(struct iio_dev *indio_dev,
+			      struct iio_chan_spec const *chan,
+			      int val, int val2, long info)
 {
 	struct admv1013_state *st = iio_priv(indio_dev);
-	unsigned int data, addr, msk;
-	int ret;
+	unsigned int addr, data, msk;
 
-	ret = kstrtou32(buf, 10, &data);
-	if (ret)
-		return ret;
-
-	if (chan->differential) {
-		data = FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
-
-		switch ((u32)private) {
-		case ADMV1013_RFMOD_I_PHASE:
-			ret = admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_I,
-						       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
-						       data);
-			if (ret)
-				return ret;
-			break;
-		case ADMV1013_RFMOD_Q_PHASE:
-			ret = admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_Q,
-						       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
-						       data);
-			if (ret)
-				return ret;
-			break;
-		default:
-			return -EINVAL;
-		}
-	} else {
+	switch (info) {
+	case IIO_CHAN_INFO_CALIBBIAS:
 		switch (chan->channel2) {
 		case IIO_MOD_I:
 			addr = ADMV1013_REG_OFFSET_ADJUST_I;
@@ -285,13 +245,79 @@ static ssize_t admv1013_write(struct iio_dev *indio_dev,
 
 		if (!chan->channel) {
 			msk = ADMV1013_MIXER_OFF_ADJ_P_MSK;
-			data = FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+			data = FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_P_MSK, val);
 		} else {
 			msk = ADMV1013_MIXER_OFF_ADJ_N_MSK;
-			data = FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
+			data = FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_N_MSK, val);
 		}
 
-		ret = admv1013_spi_update_bits(st, addr, msk, data);
+		return admv1013_spi_update_bits(st, addr, msk, data);
+	default:
+		return -EINVAL;
+	}
+}
+
+static ssize_t admv1013_read(struct iio_dev *indio_dev,
+			     uintptr_t private,
+			     const struct iio_chan_spec *chan,
+			     char *buf)
+{
+	struct admv1013_state *st = iio_priv(indio_dev);
+	unsigned int data, addr;
+	int ret;
+
+	switch ((u32)private) {
+	case ADMV1013_RFMOD_I_CALIBPHASE:
+		addr = ADMV1013_REG_LO_AMP_I;
+		break;
+	case ADMV1013_RFMOD_Q_CALIBPHASE:
+		addr = ADMV1013_REG_LO_AMP_Q;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = admv1013_spi_read(st, addr, &data);
+	if (ret)
+		return ret;
+
+	data = FIELD_GET(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
+
+	return sysfs_emit(buf, "%u\n", data);
+}
+
+static ssize_t admv1013_write(struct iio_dev *indio_dev,
+			      uintptr_t private,
+			      const struct iio_chan_spec *chan,
+			      const char *buf, size_t len)
+{
+	struct admv1013_state *st = iio_priv(indio_dev);
+	unsigned int data;
+	int ret;
+
+	ret = kstrtou32(buf, 10, &data);
+	if (ret)
+		return ret;
+
+	data = FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
+
+	switch ((u32)private) {
+	case ADMV1013_RFMOD_I_CALIBPHASE:
+		ret = admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_I,
+					       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
+					       data);
+		if (ret)
+			return ret;
+		break;
+	case ADMV1013_RFMOD_Q_CALIBPHASE:
+		ret = admv1013_spi_update_bits(st, ADMV1013_REG_LO_AMP_Q,
+					       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
+					       data);
+		if (ret)
+			return ret;
+		break;
+	default:
+		return -EINVAL;
 	}
 
 	return ret ? ret : len;
@@ -348,6 +374,8 @@ static int admv1013_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info admv1013_info = {
+	.read_raw = admv1013_read_raw,
+	.write_raw = admv1013_write_raw,
 	.debugfs_reg_access = &admv1013_reg_access,
 };
 
@@ -375,8 +403,8 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long action,
 }
 
 static const struct iio_chan_spec_ext_info admv1013_ext_info[] = {
-	_ADMV1013_EXT_INFO("i_phase", IIO_SEPARATE, ADMV1013_RFMOD_I_PHASE),
-	_ADMV1013_EXT_INFO("q_phase", IIO_SEPARATE, ADMV1013_RFMOD_Q_PHASE),
+	_ADMV1013_EXT_INFO("i_calibphase", IIO_SEPARATE, ADMV1013_RFMOD_I_CALIBPHASE),
+	_ADMV1013_EXT_INFO("q_calibphase", IIO_SEPARATE, ADMV1013_RFMOD_Q_CALIBPHASE),
 	{ },
 };
 

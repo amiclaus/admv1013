@@ -47,3 +47,81 @@
 /******************************************************************************/
 /************************** Functions Implementation **************************/
 /******************************************************************************/
+
+/**
+ * @brief Writes data to ADMV1013 over SPI.
+ * @param dev - The device structure.
+ * @param reg_addr - The register address.
+ * @param data - Data value to write.
+ * @return Returns 0 in case of success or negative error code otherwise.
+ */
+int admv1013_spi_write(struct admv1013_dev *dev, uint8_t reg_addr,
+		       uint16_t data)
+{
+	uint8_t buff[ADMV1013_BUFF_SIZE_BYTES];
+
+	/*
+	    |                Byte 0           |     Byte 1     |       Byte 2        |
+	    | 0 | Addr bits 5-0 | Data bit 15 | Data bits 14-7 | Data bits 6 - 0 | 0 |
+	*/
+	buff[0] = ADMV1013_SPI_WRITE_CMD | (reg_addr << 1) | (data >> 15);
+	buff[1] = data >> 7;
+	buff[2] = data << 1;
+
+	return no_os_spi_write_and_read(dev->spi_desc, buff,
+					ADMV1013_BUFF_SIZE_BYTES);
+}
+
+/**
+ * @brief Reads data from ADMV1013 over SPI.
+ * @param dev - The device structure.
+ * @param reg_addr - The register address.
+ * @param data - Data read from the device.
+ * @return Returns 0 in case of success or negative error code otherwise.
+ */
+int admv1013_spi_read(struct admv1013_dev *dev, uint8_t reg_addr,
+		      uint16_t *data)
+{
+	uint8_t buff[ADMV1013_BUFF_SIZE_BYTES];
+	int ret;
+
+	buff[0] = ADMV1013_SPI_READ_CMD | (reg_addr << 1);
+	buff[1] = 0;
+	buff[2] = 0;
+
+	ret = no_os_spi_write_and_read(dev->spi_desc, buff, ADMV1013_BUFF_SIZE_BYTES);
+	if(ret)
+		return ret;
+
+	/*
+	    |                Byte 0           |     Byte 1     |       Byte 2        |
+	    | 1 | Addr bits 5-0 | Data bit 15 | Data bits 14-7 | Data bits 6 - 0 | 0 |
+	*/
+	*data = ((buff[0] & NO_OS_BIT(0)) << 15 | buff[1] << 7 | buff[2] >> 1);
+
+	return 0;
+}
+
+/**
+ * @brief Update ADMV1013 register.
+ * @param dev - The device structure.
+ * @param reg_addr - The register address.
+ * @param mask - Mask for specific register bits to be updated.
+ * @param data - Data written to the device (requires prior bit shifting).
+ * @return Returns 0 in case of success or negative error code otherwise.
+ */
+int admv1013_spi_update_bits(struct admv1013_dev *dev, uint8_t reg_addr,
+			     uint16_t mask, uint16_t data)
+{
+	uint16_t read_val;
+	int ret;
+
+	ret = admv1013_spi_read(dev, reg_addr, &read_val);
+	if (ret)
+		return ret;
+
+	read_val &= ~mask;
+	read_val |= data;
+
+	return admv1013_spi_write(dev, reg_addr, read_val);
+}

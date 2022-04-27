@@ -48,4 +48,61 @@
 #include "no_os_spi.h"
 #include "no_os_util.h"
 
+/******************************************************************************/
+/********************** Macros and Constants Definitions **********************/
+/******************************************************************************/
+
+/* ADMV1013 Register Map */
+#define ADMV1013_REG_SPI_CONTROL		0x00
+#define ADMV1013_REG_ALARM			0x01
+#define ADMV1013_REG_ALARM_MASKS		0x02
+#define ADMV1013_REG_ENABLE			0x03
+#define ADMV1013_REG_LO_AMP_I			0x05
+#define ADMV1013_REG_LO_AMP_Q			0x06
+#define ADMV1013_REG_OFFSET_ADJUST_I		0x07
+#define ADMV1013_REG_OFFSET_ADJUST_Q		0x08
+#define ADMV1013_REG_QUAD			0x09
+#define ADMV1013_REG_VVA_TEMP_COMP		0x0A
+
+/* ADMV1013_REG_SPI_CONTROL Map */
+#define ADMV1013_PARITY_EN_MSK			NO_OS_BIT(15)
+#define ADMV1013_SPI_SOFT_RESET_MSK		NO_OS_BIT(14)
+#define ADMV1013_CHIP_ID_MSK			NO_OS_GENMASK(11, 4)
+#define ADMV1013_CHIP_ID			0xA
+#define ADMV1013_REVISION_ID_MSK		NO_OS_GENMASK(3, 0)
+
+/* ADMV1013_REG_ALARM Map */
+#define ADMV1013_PARITY_ERROR_MSK		NO_OS_BIT(15)
+#define ADMV1013_TOO_FEW_ERRORS_MSK		NO_OS_BIT(14)
+#define ADMV1013_TOO_MANY_ERRORS_MSK		NO_OS_BIT(13)
+#define ADMV1013_ADDRESS_RANGE_ERROR_MSK	NO_OS_BIT(12)
+
+/* ADMV1013_REG_ENABLE Map */
+#define ADMV1013_VGA_PD_MSK			NO_OS_BIT(15)
+#define ADMV1013_MIXER_PD_MSK			NO_OS_BIT(14)
+#define ADMV1013_QUAD_PD_MSK			NO_OS_GENMASK(13, 11)
+#define ADMV1013_BG_PD_MSK			NO_OS_BIT(10)
+#define ADMV1013_MIXER_IF_EN_MSK		NO_OS_BIT(7)
+#define ADMV1013_DET_EN_MSK			NO_OS_BIT(5)
+
+/* ADMV1013_REG_LO_AMP Map */
+#define ADMV1013_LOAMP_PH_ADJ_FINE_MSK		NO_OS_GENMASK(13, 7)
+#define ADMV1013_MIXER_VGATE_MSK		NO_OS_GENMASK(6, 0)
+
+/* ADMV1013_REG_OFFSET_ADJUST Map */
+#define ADMV1013_MIXER_OFF_ADJ_P_MSK		NO_OS_GENMASK(15, 9)
+#define ADMV1013_MIXER_OFF_ADJ_N_MSK		NO_OS_GENMASK(8, 2)
+
+/* ADMV1013_REG_QUAD Map */
+#define ADMV1013_QUAD_SE_MODE_MSK		NO_OS_GENMASK(9, 6)
+#define ADMV1013_QUAD_FILTERS_MSK		NO_OS_GENMASK(3, 0)
+
+/* ADMV1013_REG_VVA_TEMP_COMP Map */
+#define ADMV1013_VVA_TEMP_COMP_MSK		NO_OS_GENMASK(15, 0)
+
+/* Specifications */
+#define ADMV1013_BUFF_SIZE_BYTES		3
+#define ADMV1013_SPI_READ_CMD			NO_OS_BIT(7)
+#define ADMV1013_SPI_WRITE_CMD			(0 << 7)
+
 #endif /* ADMV1013_H_ */

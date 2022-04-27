@@ -143,8 +143,8 @@ static int admv1013_update_mixer_vgate(struct admv1013_dev *dev)
 		return -EINVAL;
 
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
-				 ADMV1013_MIXER_VGATE_MSK,
-				 NO_OS_FIELD_PREP(ADMV1013_MIXER_VGATE_MSK, mixer_vgate));
+					ADMV1013_MIXER_VGATE_MSK,
+					no_os_field_prep(ADMV1013_MIXER_VGATE_MSK, mixer_vgate));
 }
 
 /**
@@ -167,7 +167,7 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 					ADMV1013_QUAD_FILTERS_MSK,
-					FIELD_PREP(ADMV1013_QUAD_FILTERS_MSK, filt_raw));
+					no_os_field_prep(ADMV1013_QUAD_FILTERS_MSK, filt_raw));
 }
 
 /**

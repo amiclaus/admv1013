@@ -143,8 +143,8 @@ struct admv1013_init_param {
 	enum admv1013_quad_se_mode	quad_se_mode;
 	/** Detector Enable */
 	bool				det_en;
-	/** Common-Mode Voltage */
-	unsigned int			vcm;
+	/** Common-Mode Voltage (uV) */
+	unsigned int			vcm_uv;
 };
 
 /**
@@ -162,8 +162,8 @@ struct admv1013_dev {
 	enum admv1013_quad_se_mode	quad_se_mode;
 	/** Detector Enable */
 	bool				det_en;
-	/** Common-Mode Voltage */
-	unsigned int			vcm;
+	/** Common-Mode Voltage (uV) */
+	unsigned int			vcm_uv;
 };
 
 /******************************************************************************/

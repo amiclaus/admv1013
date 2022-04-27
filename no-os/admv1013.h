@@ -105,4 +105,65 @@
 #define ADMV1013_SPI_READ_CMD			NO_OS_BIT(7)
 #define ADMV1013_SPI_WRITE_CMD			(0 << 7)
 
+/******************************************************************************/
+/*************************** Types Declarations *******************************/
+/******************************************************************************/
+
+/**
+ * @enum admv1013_input_mode
+ * @brief Switch Intermediate Frequency or I/Q Mode
+ */
+enum admv1013_input_mode {
+	ADMV1013_IQ_MODE,
+	ADMV1013_IF_MODE
+};
+
+/**
+ * @enum admv1013_quad_se_mode
+ * @brief Switch Differential/Single-Ended Modes
+ */
+enum admv1013_quad_se_mode {
+	ADMV1013_SE_MODE_POS = 6,
+	ADMV1013_SE_MODE_NEG = 9,
+	ADMV1013_SE_MODE_DIFF = 12
+};
+
+/**
+ * @struct admv1013_init_param
+ * @brief ADMV1013 Initialization Parameters structure.
+ */
+struct admv1013_init_param {
+	/** SPI Initialization parameters */
+	struct no_os_spi_init_param	*spi_init;
+	/** LO Input Frequency */
+	unsigned long long		lo_in;
+	/** Input Mode */
+	enum admv1013_input_mode	input_mode;
+	/** Quad SE Mode */
+	enum admv1013_quad_se_mode	quad_se_mode;
+	/** Detector Enable */
+	bool				det_en;
+	/** Common-Mode Voltage */
+	unsigned int			vcm;
+};
+
+/**
+ * @struct admv1013_dev
+ * @brief ADMV1013 Device Descriptor.
+ */
+struct admv1013_dev {
+	/** SPI Descriptor */
+	struct no_os_spi_desc		*spi_desc;
+	/** LO Input Frequency */
+	unsigned long long		lo_in;
+	/** Input Mode */
+	enum admv1013_input_mode	input_mode;
+	/** Quad SE Mode */
+	enum admv1013_quad_se_mode	quad_se_mode;
+	/** Detector Enable */
+	bool				det_en;
+	/** Common-Mode Voltage */
+	unsigned int			vcm;
+};
+
 #endif /* ADMV1013_H_ */

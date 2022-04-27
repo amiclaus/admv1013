@@ -168,4 +168,110 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 					ADMV1013_QUAD_FILTERS_MSK,
 					FIELD_PREP(ADMV1013_QUAD_FILTERS_MSK, filt_raw));
+
+/**
+ * @brief Initializes the admv1013.
+ * @param device - The device structure.
+ * @param init_param - The structure containing the device initial parameters.
+ * @return Returns 0 in case of success or negative error code.
+ */
+int admv1013_init(struct admv1013_dev **device,
+		  struct admv1013_init_param *init_param)
+{
+	struct admv1013_dev *dev;
+	uint16_t data;
+	int ret;
+
+	dev = (struct admv1013_dev *)calloc(1, sizeof(*dev));
+	if (!dev)
+		return -ENOMEM;
+
+	/* SPI */
+	ret = no_os_spi_init(&dev->spi_desc, init_param->spi_init);
+	if (ret)
+		goto error_dev;
+
+	dev->lo_in = init_param->lo_in;
+	dev->input_mode = init_param->input_mode;
+	dev->quad_se_mode = init_param->quad_se_mode;
+	dev->det_en = init_param->det_en;
+	dev->vcm_uv = init_param->vcm_uv;
+
+	/* Perform a software reset */
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
+				       ADMV1013_SPI_SOFT_RESET_MSK,
+				       no_os_field_prep(ADMV1013_SPI_SOFT_RESET_MSK, 1));
+	if (ret)
+		goto error_spi;
+
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
+				       ADMV1013_SPI_SOFT_RESET_MSK,
+				       no_os_field_prep(ADMV1013_SPI_SOFT_RESET_MSK, 0));
+	if (ret)
+		goto error_spi;
+
+	ret = admv1013_spi_read(dev, ADMV1013_REG_SPI_CONTROL, &data);
+	if (ret)
+		goto error_spi;
+
+	data = no_os_field_get(ADMV1013_CHIP_ID_MSK, data);
+	if (data != ADMV1013_CHIP_ID) {
+		ret = -EINVAL;
+	}
+
+	/* 0xE700 - Datasheet Value for Temperature Compensation */
+	ret = admv1013_spi_write(dev, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
+	if (ret)
+		goto error_spi;
+
+	data = no_os_field_prep(ADMV1013_QUAD_SE_MODE_MSK, dev->quad_se_mode);
+
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
+				       ADMV1013_QUAD_SE_MODE_MSK, data);
+	if (ret)
+		goto error_spi;
+
+	ret = admv1013_update_mixer_vgate(dev);
+	if (ret)
+		goto error_spi;
+
+	ret = admv1013_update_quad_filters(dev);
+	if (ret)
+		goto error_spi;
+
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_ENABLE,
+				       ADMV1013_DET_EN_MSK |
+				       ADMV1013_MIXER_IF_EN_MSK,
+				       dev->det_en |
+				       dev->input_mode);
+	if (ret)
+		goto error_spi;
+
+	*device = dev;
+
+	return 0;
+error_spi:
+	no_os_spi_remove(dev->spi_desc);
+error_dev:
+	free(dev);
+
+	return ret;
+}
+
+/**
+ * @brief ADMV1013 Resources Deallocation.
+ * @param dev - The device structure.
+ * @return Returns 0 in case of success or negative error code otherwise.
+ */
+int admv1013_remove(struct admv1013_dev *dev)
+{
+	int ret;
+
+	ret = no_os_spi_remove(dev->spi_desc);
+	if (ret)
+		return ret;
+
+	free(dev);
+
+	return 0;
 }

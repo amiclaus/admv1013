@@ -183,25 +183,22 @@ int admv1013_spi_read(struct admv1013_dev *dev, uint8_t reg_addr,
 		      uint16_t *data);
 
 /** Set I/Q Phase Accuracy */
-int admv1013_set_iq_phase(struct admv1013_dev *dev, uint8_t i_data,
-			uint8_t q_data);
+int admv1013_set_iq_phase(struct admv1013_dev *dev, uint8_t i_phase,
+			  uint8_t q_phase);
 
 /** Get I/Q Phase Accuracy */
-int admv1013_get_iq_phase(struct admv1013_dev *dev, uint8_t *i_data,
-			uint8_t *q_data);
+int admv1013_get_iq_phase(struct admv1013_dev *dev, uint8_t *i_phase,
+			  uint8_t *q_phase);
 
 /** Set I/Q Offset Accuracy */
 int admv1013_set_iq_offset(struct admv1013_dev *dev, uint8_t i_offset_p,
-			uint8_t i_offset_n, uint8_t q_offset_p,
-			uint8_t q_offset_n);
+			   uint8_t i_offset_n, uint8_t q_offset_p,
+			   uint8_t q_offset_n);
 
 /** Get I/Q Offset Accuracy */
-int admv1013_get_iq_phase(struct admv1013_dev *dev, uint8_t *i_offset_p,
-			uint8_t *i_offset_n, uint8_t *q_offset_p,
-			uint8_t *q_offset_n);
-
-/* Software Reset */
-int admv1013_soft_reset(struct admv1013_dev *dev);
+int admv1013_get_iq_offset(struct admv1013_dev *dev, uint8_t *i_offset_p,
+			   uint8_t *i_offset_n, uint8_t *q_offset_p,
+			   uint8_t *q_offset_n);
 
 /** ADMV1013 Initialization */
 int admv1013_init(struct admv1013_dev **device,

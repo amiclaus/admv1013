@@ -168,6 +168,68 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 					ADMV1013_QUAD_FILTERS_MSK,
 					FIELD_PREP(ADMV1013_QUAD_FILTERS_MSK, filt_raw));
+/**
+ * @brief Set I/Q Offset Accuracy
+ * @param dev - The device structure.
+ * @param i_offset_p - The I Data Positive.
+ * @param i_offset_n - The I Data Negative.
+ * @param q_offset_p - The Q Data Positive.
+ * @param q_offset_n - The Q Data Negative.
+ * @return Returns 0 in case of success or negative error code.
+ */
+int admv1013_set_iq_offset(struct admv1013_dev *dev, uint8_t i_offset_p,
+			   uint8_t i_offset_n, uint8_t q_offset_p,
+			   uint8_t q_offset_n)
+{
+	int ret;
+
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_I,
+				       ADMV1013_MIXER_OFF_ADJ_P_MSK |
+				       ADMV1013_MIXER_OFF_ADJ_N_MSK,
+				       no_os_field_prep(ADMV1013_MIXER_OFF_ADJ_P_MSK, i_offset_p) |
+				       no_os_field_prep(ADMV1013_MIXER_OFF_ADJ_N_MSK, i_offset_n));
+	if (ret)
+		return ret;
+
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_OFFSET_ADJUST_Q,
+					ADMV1013_MIXER_OFF_ADJ_P_MSK |
+					ADMV1013_MIXER_OFF_ADJ_N_MSK,
+					no_os_field_prep(ADMV1013_MIXER_OFF_ADJ_P_MSK, q_offset_p) |
+					no_os_field_prep(ADMV1013_MIXER_OFF_ADJ_N_MSK, q_offset_n));
+}
+
+/**
+ * @brief Get I/Q Offset Accuracy
+ * @param dev - The device structure.
+ * @param i_offset_p - The I Data Positive.
+ * @param i_offset_n - The I Data Negative.
+ * @param q_offset_p - The Q Data Positive.
+ * @param q_offset_n - The Q Data Negative.
+ * @return Returns 0 in case of success or negative error code.
+ */
+int admv1013_get_iq_offset(struct admv1013_dev *dev, uint8_t *i_offset_p,
+			   uint8_t *i_offset_n, uint8_t *q_offset_p,
+			   uint8_t *q_offset_n)
+{
+	uint16_t data;
+	int ret;
+
+	ret = admv1013_spi_read(dev, ADMV1013_REG_OFFSET_ADJUST_I, &data);
+	if (ret)
+		return ret;
+
+	*i_offset_p = no_os_field_get(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+	*i_offset_n = no_os_field_get(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
+
+	ret = admv1013_spi_read(dev, ADMV1013_REG_OFFSET_ADJUST_Q, &data);
+	if (ret)
+		return ret;
+
+	*q_offset_p = no_os_field_get(ADMV1013_MIXER_OFF_ADJ_P_MSK, data);
+	*q_offset_n = no_os_field_get(ADMV1013_MIXER_OFF_ADJ_N_MSK, data);
+
+	return 0;
+}
 
 /**
  * @brief Initializes the admv1013.

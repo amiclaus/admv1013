@@ -168,6 +168,62 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 					ADMV1013_QUAD_FILTERS_MSK,
 					FIELD_PREP(ADMV1013_QUAD_FILTERS_MSK, filt_raw));
+}
+
+/**
+ * @brief Set I/Q Phase Accuracy
+ * @param dev - The device structure.
+ * @param i_phase - The I Data.
+ * @param q_phase - The Q Data.
+ * @return Returns 0 in case of success or negative error code.
+ */
+int admv1013_set_iq_phase(struct admv1013_dev *dev, uint8_t i_phase,
+			  uint8_t q_phase)
+{
+	int ret;
+
+	i_phase = no_os_field_prep(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, i_phase);
+	q_phase = no_os_field_prep(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, q_phase);
+
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
+				       ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
+				       i_phase);
+	if (ret)
+		return ret;
+
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_Q,
+					ADMV1013_LOAMP_PH_ADJ_FINE_MSK,
+					q_phase);
+}
+
+/**
+ * @brief Get I/Q Phase Accuracy
+ * @param dev - The device structure.
+ * @param i_phase - The I Data.
+ * @param q_phase - The Q Data.
+ * @return Returns 0 in case of success or negative error code.
+ */
+int admv1013_get_iq_phase(struct admv1013_dev *dev, uint8_t *i_phase,
+			  uint8_t *q_phase)
+{
+	uint16_t data;
+	int ret;
+
+	ret = admv1013_spi_read(dev, ADMV1013_REG_LO_AMP_I, &data);
+	if (ret)
+		return ret;
+
+	*i_phase = no_os_field_get(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
+
+	ret = admv1013_spi_read(dev, ADMV1013_REG_LO_AMP_Q, &data);
+	if (ret)
+		return ret;
+
+	*q_phase = no_os_field_get(ADMV1013_LOAMP_PH_ADJ_FINE_MSK, data);
+
+	return 0;
+}
+
 /**
  * @brief Set I/Q Offset Accuracy
  * @param dev - The device structure.

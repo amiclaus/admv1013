@@ -166,4 +166,54 @@ struct admv1013_dev {
 	unsigned int			vcm;
 };
 
+/******************************************************************************/
+/************************ Functions Declarations ******************************/
+/******************************************************************************/
+
+/** ADMV1013 SPI write */
+int admv1013_spi_write(struct admv1013_dev *dev, uint8_t reg_addr,
+		       uint16_t data);
+
+/* ADMV1013 Register Update */
+int admv1013_spi_update_bits(struct admv1013_dev *dev, uint8_t reg_addr,
+			     uint16_t mask, uint16_t data);
+
+/** ADMV1013 SPI Read */
+int admv1013_spi_read(struct admv1013_dev *dev, uint8_t reg_addr,
+		      uint16_t *data);
+
+/** Update Mixer Gate Voltage */
+int admv1013_update_mixer_vgate(struct admv1013_dev *dev);
+
+/** Update Quad Filters */
+int admv1013_update_quad_filters(struct admv1013_dev *dev);
+
+/** Set I/Q Phase Accuracy */
+int admv1013_set_iq_phase(struct admv1013_dev *dev, uint8_t i_data,
+			uint8_t q_data);
+
+/** Get I/Q Phase Accuracy */
+int admv1013_get_iq_phase(struct admv1013_dev *dev, uint8_t *i_data,
+			uint8_t *q_data);
+
+/** Set I/Q Offset Accuracy */
+int admv1013_set_iq_offset(struct admv1013_dev *dev, uint8_t i_offset_p,
+			uint8_t i_offset_n, uint8_t q_offset_p,
+			uint8_t q_offset_n);
+
+/** Get I/Q Offset Accuracy */
+int admv1013_get_iq_phase(struct admv1013_dev *dev, uint8_t *i_offset_p,
+			uint8_t *i_offset_n, uint8_t *q_offset_p,
+			uint8_t *q_offset_n);
+
+/* Software Reset */
+int admv1013_soft_reset(struct admv1013_dev *dev);
+
+/** ADMV1013 Initialization */
+int admv1013_init(struct admv1013_dev **device,
+		  struct admv1013_init_param *init_param);
+
+/** ADMV1013 Resources Deallocation */
+int admv1013_remove(struct admv1013_dev *dev);
+
 #endif /* ADMV1013_H_ */

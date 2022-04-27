@@ -125,3 +125,25 @@ int admv1013_spi_update_bits(struct admv1013_dev *dev, uint8_t reg_addr,
 
 	return admv1013_spi_write(dev, reg_addr, read_val);
 }
+
+/**
+ * @brief Update Mixer Gate Voltage.
+ * @param dev - The device structure.
+ * @return Returns 0 in case of success or negative error code otherwise.
+ */
+static int admv1013_update_mixer_vgate(struct admv1013_dev *dev)
+{
+	unsigned int mixer_vgate;
+
+	if (dev->vcm_uv < 1800000)
+		mixer_vgate = (2389 * dev->vcm_uv / 1000000 + 8100) / 100;
+	else if (dev->vcm_uv > 1800000 && dev->vcm_uv < 2600000)
+		mixer_vgate = (2375 * dev->vcm_uv / 1000000 + 125) / 100;
+	else
+		return -EINVAL;
+
+	return admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
+				 ADMV1013_MIXER_VGATE_MSK,
+				 NO_OS_FIELD_PREP(ADMV1013_MIXER_VGATE_MSK, mixer_vgate));
+}
+}

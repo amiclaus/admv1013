@@ -105,6 +105,9 @@
 #define ADMV1013_SPI_READ_CMD			NO_OS_BIT(7)
 #define ADMV1013_SPI_WRITE_CMD			(0 << 7)
 
+#define MIXER_GATE_0_to_1_8_V(x)		((2389 * x/ 1000000 + 8100) / 100)
+#define MIXER_GATE_1_8_to_2_6_V(x)		((2375 * x/ 1000000 + 125) / 100)
+
 /******************************************************************************/
 /*************************** Types Declarations *******************************/
 /******************************************************************************/
@@ -126,6 +129,17 @@ enum admv1013_quad_se_mode {
 	ADMV1013_SE_MODE_POS = 6,
 	ADMV1013_SE_MODE_NEG = 9,
 	ADMV1013_SE_MODE_DIFF = 12
+};
+
+/**
+ * @enum admv1013_quad_filters
+ * @brief LO Filters BW Selection
+ */
+enum admv1013_quad_filters {
+	LO_BAND_8_62_TO_10_25_GHZ = 0,
+	LO_BAND_6_6_TO_9_2_GHZ = 5,
+	LO_BAND_5_4_TO_8_GHZ = 10,
+	LO_BAND_5_4_TO_7_GHZ = 15
 };
 
 /**

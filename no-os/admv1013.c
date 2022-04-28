@@ -136,9 +136,9 @@ static int admv1013_update_mixer_vgate(struct admv1013_dev *dev)
 	unsigned int mixer_vgate;
 
 	if (dev->vcm_uv < 1800000)
-		mixer_vgate = (2389 * dev->vcm_uv / 1000000 + 8100) / 100;
+		mixer_vgate = MIXER_GATE_0_to_1_8_V(dev->vcm_uv);
 	else if (dev->vcm_uv > 1800000 && dev->vcm_uv < 2600000)
-		mixer_vgate = (2375 * dev->vcm_uv / 1000000 + 125) / 100;
+		mixer_vgate = MIXER_GATE_1_8_to_2_6_V(dev->vcm_uv);
 	else
 		return -EINVAL;
 
@@ -156,14 +156,17 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 {
 	unsigned int filt_raw;
 
-	if (dev->lo_in >= (5400000000) && dev->lo_in <= (7000000000))
-		filt_raw = 15;
-	else if (dev->lo_in >= (5400000000) && dev->lo_in <= (8000000000))
-		filt_raw = 10;
-	else if (dev->lo_in >= (6600000000) && dev->lo_in <= (9200000000))
-		filt_raw = 5;
+	if ((dev->lo_in < 5400000000) || (dev->lo_in > 10250000000))
+		return -EINVAL;
+
+	if ((dev->lo_in >= 5400000000) && (dev->lo_in <= 7000000000))
+		filt_raw = LO_BAND_5_4_TO_7_GHZ;
+	else if ((dev->lo_in >= 5400000000) && (dev->lo_in <= 8000000000))
+		filt_raw = LO_BAND_5_4_TO_8_GHZ;
+	else if ((dev->lo_in >= 6600000000) && (dev->lo_in <= 9200000000))
+		filt_raw = LO_BAND_6_6_TO_9_2_GHZ;
 	else
-		filt_raw = 0;
+		filt_raw = LO_BAND_8_62_TO_10_25_GHZ;
 
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 					ADMV1013_QUAD_FILTERS_MSK,
